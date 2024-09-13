@@ -1315,7 +1315,7 @@ add_library(ggml
             ${GGML_SOURCES_BLAS}      ${GGML_HEADERS_BLAS}
             ${GGML_SOURCES_LLAMAFILE} ${GGML_HEADERS_LLAMAFILE}
             ${GGML_SOURCES_CANN}      ${GGML_HEADERS_CANN}
-            ggml-aarch64.c            ggml-aarch64.h
+            ggml-block-interleaved.c            ggml-block-interleaved.h
             )
 
 if (EMSCRIPTEN)

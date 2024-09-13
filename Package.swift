@@ -13,7 +13,7 @@ var sources = [
     "ggml/src/ggml-alloc.c",
     "ggml/src/ggml-backend.c",
     "ggml/src/ggml-quants.c",
-    "ggml/src/ggml-aarch64.c",
+    "ggml/src/ggml-block-interleaved.c",
 ]
 
 var resources: [Resource] = []
