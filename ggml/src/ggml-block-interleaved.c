@@ -442,6 +442,61 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
 #endif
         }
     }
+#elif defined(__riscv_v_intrinsic)
+    size_t vl = __riscv_vsetvl_e32m1(32);
+    float id[4];
+    vfloat32m1_t srcv[4][4];
+    vfloat32m1_t idvec[4];
+    const vfloat32m1_t signBit = __riscv_vfmv_v_f_f32m1(-0.0f, vl);
+
+    for (int i = 0; i < nb; i++) {
+        for (int row_iter = 0; row_iter < 4; row_iter++){
+            // Load elements into 4 AVX vectors
+            vfloat32m1_t v0 = __riscv_vle32_v_f32m1(x + row_iter * k + i * 32, vl);
+            vfloat32m1_t v1 = __riscv_vle32_v_f32m1(x + row_iter * k + i * 32 + 8, vl);
+            vfloat32m1_t v2 = __riscv_vle32_v_f32m1(x + row_iter * k + i * 32 + 16, vl);
+            vfloat32m1_t v3 = __riscv_vle32_v_f32m1(x + row_iter * k + i * 32 + 24, vl);
+
+            // Compute max(abs(e)) for the block
+            vfloat32m1_t maxAbs __riscv_vfabs(v0,vl);
+            maxAbs = __riscv_vfmax(maxAbs, v1, vl);
+            maxAbs = __riscv_vfmax(maxAbs, v2, vl);
+            maxAbs = __riscv_vfmax(maxAbs, v3, vl);
+            const float maxScalar = __riscv_vfmv_f_s_f32m1_f32(__riscv_vfredmax_vs_f32m1_f32m1(maxAbs,maxAbs,vl));
+
+            // Divided by 127.f to mirror results in quantize_row_q8_0
+            const float d = maxScalar  / 127.f;
+            id[row_iter] = ( maxScalar != 0.0f ) ? 127.f / maxScalar : 0.0f; //d ? 1.0f / d : 0.0f;
+
+            // Store the scale for the individual block
+            y[i].d[row_iter] = GGML_FP32_TO_FP16(d);
+
+            // Store the values in blocks of eight values - Aim is to use these later for block interleaving
+            srcv[row_iter][0] = v0;
+            srcv[row_iter][1] = v1;
+            srcv[row_iter][2] = v2;
+            srcv[row_iter][3] = v3;
+            idvec[row_iter] = __riscv_vfmv_v_f_f32m1(id[row_iter],vl);
+        }
+
+        // The loop iterates four times - The aim is to get 4 corresponding chunks of eight bytes from the original weight blocks that are interleaved
+        for (int j = 0; j < 4; j++) {
+            vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[0][j], idvec[0]),vl);
+            vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[1][j], idvec[1]),vl);
+            vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[2][j], idvec[2]),vl);
+            vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[3][j], idvec[3]),vl);
+
+            vint8mf4_t v0_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v0,0,vl)),0,vl);
+            vint8mf4_t v1_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v1,0,vl)),0,vl);
+            vint8mf4_t v2_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v2,0,vl)),0,vl);
+            vint8mf4_t v3_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v3,0,vl)),0,vl);
+
+            __riscv_vse8_v_i8mf4(y[i].qs + 32 * j,v0_i8, vl);
+            __riscv_vse8_v_i8mf4(y[i].qs + 32 * j + vl, v1_i8, vl);
+            __riscv_vse8_v_i8mf4(y[i].qs + 32 * j + 2 * vl, v2_i8, vl);
+            __riscv_vse8_v_i8mf4(y[i].qs + 32 * j + 3 * vl, v3_i8, vl);
+        }
+    }
 #else
     // scalar
     const int blck_size_interleave = 8;
@@ -967,6 +1022,10 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     vint8m1_t signextendlut = __riscv_vle8_v_i8m1(lut,32);
     uint8_t mask_[32] = {4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11,20,21,22,23,16,17,18,19,28,29,30,31,24,25,26,27};
     vuint8m1_t vmask = __riscv_vle8_v_u8m1(mask_,32);
+    uint16_t arrangeMask[8] = {0,4,1,5,2,6,3,7};  // 将按照 [40, 20, 10, 30] 顺序提取
+    vuint16mf2_t indices_ = __riscv_vle16_v_u16mf2(arrangeMask, 8);
+    uint32_t finalpermutemask[8]={0,2,4,6,1,3,5,7};
+    vuint16mf1_t finalpermutemask_ = __riscv_vle32_v_u32m1(finalpermutemask, 8);
     //part_wredsum
     int16_t mul16[32];
     int32_t sum32[8];
@@ -1068,7 +1127,14 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
                 iacc = part_wredsum(mul16,sum32,vec_mul_24_27,iacc);
                 iacc = part_wredsum(mul16,sum32,vec_mul_28_31,iacc);
 
+                vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vrgather_vv_i16mf2(__riscv_vle16_v_i16mf2(x,8),indices_,8),8);
+                vfloat32m1_t row_scale_f32 = __riscv_vfwcvt_x_f_v_i32m1( __riscv_vle16_v_f16mf2(a_ptr[b].d,vl/4),vl/4)
+
+               acc_row = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32),8),acc_row,8)
             }
+            // Accumulated output values permuted so as to be stored in appropriate order post accumulation
+            acc_row = __riscv_vrgather_vv_f32m1(acc_row,finalpermutemask);
+            __riscv_vse32_v_f32m1(s + (y * nr + x * 8), acc_row,8);
         }
     }
 
