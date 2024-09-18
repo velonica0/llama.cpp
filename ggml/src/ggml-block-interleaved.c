@@ -114,6 +114,18 @@ static inline __m256i mul_sum_i8_pairs_int(const __m256i x, const __m256i y) {
 }
 #endif
 
+#if defined(__riscv_v_intrinsic)
+//TODO:RVV vector expansion uses VL as the division unit, and part operations cannot be performed inside the RVV variable. If there is a good method, I hope it will be updated.
+static inline vint32m1_t part_wredsum(int16_t* mul16, int32_t* sum32, vint16m2_t vec_mul,vint32m1_t iacc){
+    __riscv_vse16_v_i16m2(mul16,vec_mul,32);
+    for(int i=0;i<32;i+=4){
+        *(sum32+i/4)=*(mul16+i)+*(mul16+i+1)+*(mul16+i+2)+*(mul16+i+3);
+    }
+    return  __riscv_vadd_vv_i32m1(__riscv_vle32_v_i32m1(sum32,32/4),iacc,32);
+
+}
+#endif
+
 static block_q4_0x4 make_block_q4_0x4(block_q4_0 * in, unsigned int blck_size_interleave, unsigned int xor_mask) {
     block_q4_0x4 out;
 
@@ -949,6 +961,117 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
             _mm256_storeu_ps(s + (y * nr + x * 8), acc_row);
         }
     }
+#elif defined(__riscv_v_intrinsic)
+
+    int8_t lut[32] = {0,1,2,3,4,5,6,7,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,-8,-7,-6,-5,-4,-3,-2,-1};
+    vint8m1_t signextendlut = __riscv_vle8_v_i8m1(lut,32);
+    uint8_t mask_[32] = {4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11,20,21,22,23,16,17,18,19,28,29,30,31,24,25,26,27};
+    vuint8m1_t vmask = __riscv_vle8_v_u8m1(mask_,32);
+    //part_wredsum
+    int16_t mul16[32];
+    int32_t sum32[8];
+
+    //expand_4_32
+    uint8_t index_i8[32];
+    for (int i = 0; i < 32; i++) {
+        index_i8[i] = i % 4;  // 重复从 vsrc 的前 4 个元素中选择
+    }
+    vuint8m1_t expand_i8 = __riscv_vle8_v_u8m1(index_i8,32);
+    //expand_u4_u32
+    uint8_t index_u8[32];
+    for (int i = 0; i < 32; i++) {
+        index_u8[i] = i % 8;  // 重复从 vsrc 的前 4 个元素中选择
+    }
+    vuint8m1_t expand_u8 = __riscv_vle8_v_u8m1(index_u8,32);
+
+    //组合rhs
+    vuint8m1_t idx = __riscv_vid_v_u8m1(8);
+    vuint8m1_t idx_and_1 = __riscv_vand_vx_u8m1(idx, 7, 8);
+    idx_and_1 = __riscv_vrgather_vv_u8m1(idx_and_1,expand_u8,32);
+    vbool8_t mask = __riscv_vmsltu_vx_u8m1_b8(idx_and_1, 4, 32);
+    vint8m1_t m4b = __riscv_vmv_v_x_i8m1(0x0F,32);
+
+    int64_t b_nb = n / QK4_0;
+
+    const block_q4_0x8 * b_ptr_start = (const block_q4_0x8 *)vx;
+    const block_q8_0 * a_ptr_start = (const block_q8_0 *)vy;
+
+    size_t vl = __riscv_vsetvl_e8m1(32);
+
+    for(int64_t y = 0; y < nr; y++){
+
+        // Pointers to LHS blocks of block_q8_0 format
+        const block_q8_0 * a_ptr = a_ptr_start + (y * nb);
+
+        // Take group of eight block_q4_0x8 structures at each pass of the loop and perform dot product operation
+        for (int64_t x = 0; x < nc / 8; x++) {
+
+            // Pointers to RHS blocks
+            const block_q4_0x8 * b_ptr = b_ptr_start + (x * b_nb);
+
+            vfloat32m1_t acc_row = __riscv_vfmv_v_f_f32m1(0.0,vl/8);
+
+            for (int64_t b = 0; b < nb; b++) {
+                // Load 8 blocks of Q4_0 interleaved as 8 bytes (B0 - B7)
+                vuint8m1_t rhs_raw_vec_0123_0 = __riscv_vle8_v_u8m1(b_ptr[b].qs, vl);
+                vuint8m1_t rhs_raw_vec_4567_0 = __riscv_vle8_v_u8m1(b_ptr[b].qs+32, vl);
+                vuint8m1_t rhs_raw_vec_0123_1 = __riscv_vle8_v_u8m1(b_ptr[b].qs+64, vl);
+                vuint8m1_t rhs_raw_vec_4567_1 = __riscv_vle8_v_u8m1(b_ptr[b].qs+96, vl);
+
+                // 4-bit -> 8-bit - Sign is maintained
+                vint8m1_t rhs_vec_0123_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_vec_0123_0, 0x0F, vl),vl);
+                vint8m1_t rhs_vec_4567_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_vec_4567_0, 0x0F, vl),vl);
+                vint8m1_t rhs_vec_0123_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_vec_0123_1, 0x0F, vl),vl);
+                vint8m1_t rhs_vec_4567_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_vec_4567_1, 0x0F, vl),vl);
+
+                vint8m1_t rhs_vec_0123_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_vec_0123_0, 0x04, 32),32);
+                vint8m1_t rhs_vec_4567_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_vec_4567_0, 0x04, 32),32);
+                vint8m1_t rhs_vec_0123_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_vec_0123_1, 0x04, 32),32);
+                vint8m1_t rhs_vec_4567_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_vec_4567_1, 0x04, 32),32);
+
+                //B0(0-3) B4(0-3) B1(0-3) B5(0-3) B2(0-3) B6(0-3) B3(0-3) B7(0-3)
+                vint8m1_t rhs_vec_0_3 = __riscv_vmerge_vvm_i8m1(__riscv_vrgather_vv_i8m1(rhs_vec_4567_0,vmask,32),rhs_vec_0123_0,mask,32);
+                vint8m1_t rhs_vec_4_7 = __riscv_vmerge_vvm_i8m1(rhs_vec_4567_0,__riscv_vrgather_vv_i8m1(rhs_vec_0123_0,vmask,32),mask,32);
+                vint8m1_t rhs_vec_8_11 = __riscv_vmerge_vvm_i8m1(__riscv_vrgather_vv_i8m1(rhs_vec_4567_1,vmask,32),rhs_vec_0123_1,mask,32);
+                vint8m1_t rhs_vec_12_15 = __riscv_vmerge_vvm_i8m1(rhs_vec_4567_1,__riscv_vrgather_vv_i8m1(rhs_vec_0123_1,vmask,32),mask,32);
+                vint8m1_t rhs_vec_16_19 = __riscv_vmerge_vvm_i8m1(__riscv_vrgather_vv_i8m1(rhs_vec_4567_2,vmask,32),rhs_vec_0123_2,mask,32);
+                vint8m1_t rhs_vec_20_23 = __riscv_vmerge_vvm_i8m1(rhs_vec_4567_2,__riscv_vrgather_vv_i8m1(rhs_vec_0123_2,vmask,32),mask,32);
+                vint8m1_t rhs_vec_24_27 = __riscv_vmerge_vvm_i8m1(__riscv_vrgather_vv_i8m1(rhs_vec_4567_3,vmask,32),rhs_vec_0123_3,mask,32);
+                vint8m1_t rhs_vec_28_31 = __riscv_vmerge_vvm_i8m1(rhs_vec_4567_3,__riscv_vrgather_vv_i8m1(rhs_vec_0123_3,vmask,32),mask,32);
+
+                vint8m1_t lhs_vec_0_3 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs, 4),expand_i8,32);
+                vint8m1_t lhs_vec_4_7 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+4, 4),expand_i8,32);
+                vint8m1_t lhs_vec_8_11 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+8, 4),expand_i8,32);
+                vint8m1_t lhs_vec_12_15 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+12, 4),expand_i8,32);
+                vint8m1_t lhs_vec_16_19 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+16, 4),expand_i8,32);
+                vint8m1_t lhs_vec_20_23 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+20, 4),expand_i8,32);
+                vint8m1_t lhs_vec_24_27 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+24, 4),expand_i8,32);
+                vint8m1_t lhs_vec_28_31 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+28, 4),expand_i8,32);
+
+                //相乘（需要提取B0(0-3)B1(0-3)...B7(0-3);需要扩展A0(0-3)）B需要两个vint8m1_t每隔4个交错取出
+                vint16m2_t vec_mul_0_3 = __riscv_vwmul_vv_i16m2(rhs_vec_0_3,lhs_vec_0_3,32);
+                vint16m2_t vec_mul_4_7 = __riscv_vwmul_vv_i16m2(rhs_vec_4_7,lhs_vec_4_7,32);
+                vint16m2_t vec_mul_8_11 = __riscv_vwmul_vv_i16m2(rhs_vec_8_11,lhs_vec_8_11,32);
+                vint16m2_t vec_mul_12_15 = __riscv_vwmul_vv_i16m2(rhs_vec_12_15,lhs_vec_12_15,32);
+                vint16m2_t vec_mul_16_19 = __riscv_vwmul_vv_i16m2(rhs_vec_16_19,lhs_vec_16_19,32);
+                vint16m2_t vec_mul_20_23 = __riscv_vwmul_vv_i16m2(rhs_vec_20_23,lhs_vec_20_23,32);
+                vint16m2_t vec_mul_24_27 = __riscv_vwmul_vv_i16m2(rhs_vec_24_27,lhs_vec_24_27,32);
+                vint16m2_t vec_mul_28_31 = __riscv_vwmul_vv_i16m2(rhs_vec_28_31,lhs_vec_28_31,32);
+
+                vint32m1_t iacc = __riscv_vmv_v_x_i32m1(0, 32);
+                iacc = part_wredsum(mul16,sum32,vec_mul_0_3,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_4_7,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_8_11,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_12_15,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_16_19,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_20_23,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_24_27,iacc);
+                iacc = part_wredsum(mul16,sum32,vec_mul_28_31,iacc);
+
+            }
+        }
+    }
+
 #else
     float sumf[8];
     int sumi;
