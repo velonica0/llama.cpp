@@ -116,12 +116,17 @@ static inline __m256i mul_sum_i8_pairs_int(const __m256i x, const __m256i y) {
 
 #if defined(__riscv_v_intrinsic)
 //TODO:RVV vector expansion uses VL as the division unit, and part operations cannot be performed inside the RVV variable. If there is a good method, I hope it will be updated.
-static inline vint32m1_t part_wredsum(int16_t* mul16, int32_t* sum32, vint16m2_t vec_mul,vint32m1_t iacc){
-    __riscv_vse16_v_i16m2(mul16,vec_mul,32);
+static inline vint32m1_t part_wredsum(vint8m1_t x, vint8m1_t y){
+        //part_wredsum
+    int16_t mul16[32];
+    int32_t sum32[8];
+
+    
+    __riscv_vse16_v_i16m2(mul16,__riscv_vwmul_vv_i16m2(x,y,32),32);
     for(int i=0;i<32;i+=4){
         *(sum32+i/4)=*(mul16+i)+*(mul16+i+1)+*(mul16+i+2)+*(mul16+i+3);
     }
-    return  __riscv_vadd_vv_i32m1(__riscv_vle32_v_i32m1(sum32,32/4),iacc,32);
+    return  __riscv_vle32_v_i32m1(sum32,32/4);
 
 }
 #endif
@@ -1023,12 +1028,10 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     uint8_t mask_[32] = {4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11,20,21,22,23,16,17,18,19,28,29,30,31,24,25,26,27};
     vuint8m1_t vmask = __riscv_vle8_v_u8m1(mask_,32);
     uint16_t arrangeMask[8] = {0,4,1,5,2,6,3,7};  // 将按照 [40, 20, 10, 30] 顺序提取
-    vuint16mf2_t indices_ = __riscv_vle16_v_u16mf2(arrangeMask, 8);
+    vuint16mf2_t changemask = __riscv_vle16_v_u16mf2(arrangeMask, 8);
     uint32_t finalpermutemask[8]={0,2,4,6,1,3,5,7};
     vuint16mf1_t finalpermutemask_ = __riscv_vle32_v_u32m1(finalpermutemask, 8);
-    //part_wredsum
-    int16_t mul16[32];
-    int32_t sum32[8];
+
 
     //expand_4_32
     uint8_t index_i8[32];
@@ -1036,18 +1039,18 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
         index_i8[i] = i % 4;  // 重复从 vsrc 的前 4 个元素中选择
     }
     vuint8m1_t expand_i8 = __riscv_vle8_v_u8m1(index_i8,32);
-    //expand_u4_u32
+
+
+    //组合rhs
     uint8_t index_u8[32];
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 32; i++) {  //expand_u4_u32
         index_u8[i] = i % 8;  // 重复从 vsrc 的前 4 个元素中选择
     }
     vuint8m1_t expand_u8 = __riscv_vle8_v_u8m1(index_u8,32);
-
-    //组合rhs
     vuint8m1_t idx = __riscv_vid_v_u8m1(8);
     vuint8m1_t idx_and_1 = __riscv_vand_vx_u8m1(idx, 7, 8);
     idx_and_1 = __riscv_vrgather_vv_u8m1(idx_and_1,expand_u8,32);
-    vbool8_t mask = __riscv_vmsltu_vx_u8m1_b8(idx_and_1, 4, 32);
+    vbool8_t mask = __riscv_vmsltu_vx_u8m1_b8(idx_and_1, 4, 32);    //0101交错
     vint8m1_t m4b = __riscv_vmv_v_x_i8m1(0x0F,32);
 
     int64_t b_nb = n / QK4_0;
@@ -1107,30 +1110,31 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
                 vint8m1_t lhs_vec_24_27 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+24, 4),expand_i8,32);
                 vint8m1_t lhs_vec_28_31 = __riscv_vrgather_vv_i8m1(__riscv_vle8_v_i8m1(a_ptr[b].qs+28, 4),expand_i8,32);
 
-                //相乘（需要提取B0(0-3)B1(0-3)...B7(0-3);需要扩展A0(0-3)）B需要两个vint8m1_t每隔4个交错取出
-                vint16m2_t vec_mul_0_3 = __riscv_vwmul_vv_i16m2(rhs_vec_0_3,lhs_vec_0_3,32);
-                vint16m2_t vec_mul_4_7 = __riscv_vwmul_vv_i16m2(rhs_vec_4_7,lhs_vec_4_7,32);
-                vint16m2_t vec_mul_8_11 = __riscv_vwmul_vv_i16m2(rhs_vec_8_11,lhs_vec_8_11,32);
-                vint16m2_t vec_mul_12_15 = __riscv_vwmul_vv_i16m2(rhs_vec_12_15,lhs_vec_12_15,32);
-                vint16m2_t vec_mul_16_19 = __riscv_vwmul_vv_i16m2(rhs_vec_16_19,lhs_vec_16_19,32);
-                vint16m2_t vec_mul_20_23 = __riscv_vwmul_vv_i16m2(rhs_vec_20_23,lhs_vec_20_23,32);
-                vint16m2_t vec_mul_24_27 = __riscv_vwmul_vv_i16m2(rhs_vec_24_27,lhs_vec_24_27,32);
-                vint16m2_t vec_mul_28_31 = __riscv_vwmul_vv_i16m2(rhs_vec_28_31,lhs_vec_28_31,32);
+                // //相乘（需要提取B0(0-3)B1(0-3)...B7(0-3);需要扩展A0(0-3)）B需要两个vint8m1_t每隔4个交错取出
+                // vint16m2_t vec_mul_0_3 = __riscv_vwmul_vv_i16m2(rhs_vec_0_3,lhs_vec_0_3,32);
+                // vint16m2_t vec_mul_4_7 = __riscv_vwmul_vv_i16m2(rhs_vec_4_7,lhs_vec_4_7,32);
+                // vint16m2_t vec_mul_8_11 = __riscv_vwmul_vv_i16m2(rhs_vec_8_11,lhs_vec_8_11,32);
+                // vint16m2_t vec_mul_12_15 = __riscv_vwmul_vv_i16m2(rhs_vec_12_15,lhs_vec_12_15,32);
+                // vint16m2_t vec_mul_16_19 = __riscv_vwmul_vv_i16m2(rhs_vec_16_19,lhs_vec_16_19,32);
+                // vint16m2_t vec_mul_20_23 = __riscv_vwmul_vv_i16m2(rhs_vec_20_23,lhs_vec_20_23,32);
+                // vint16m2_t vec_mul_24_27 = __riscv_vwmul_vv_i16m2(rhs_vec_24_27,lhs_vec_24_27,32);
+                // vint16m2_t vec_mul_28_31 = __riscv_vwmul_vv_i16m2(rhs_vec_28_31,lhs_vec_28_31,32);
 
-                vint32m1_t iacc = __riscv_vmv_v_x_i32m1(0, 32);
-                iacc = part_wredsum(mul16,sum32,vec_mul_0_3,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_4_7,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_8_11,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_12_15,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_16_19,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_20_23,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_24_27,iacc);
-                iacc = part_wredsum(mul16,sum32,vec_mul_28_31,iacc);
+                vint32m1_t iacc = __riscv_vmv_v_x_i32m1(0, 8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_0_3,lhs_vec_0_3),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_4_7,lhs_vec_4_7),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_8_11,lhs_vec_8_11),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_12_15,lhs_vec_12_15),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_16_19,lhs_vec_16_19),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_20_23,lhs_vec_20_23),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_24_27,lhs_vec_24_27),8);
+                iacc = __riscv_vadd_vv_i32m1(part_wredsum(rhs_vec_28_31,lhs_vec_28_31),8);
 
-                vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vrgather_vv_i16mf2(__riscv_vle16_v_i16mf2(x,8),indices_,8),8);
-                vfloat32m1_t row_scale_f32 = __riscv_vfwcvt_x_f_v_i32m1( __riscv_vle16_v_f16mf2(a_ptr[b].d,vl/4),vl/4)
 
-               acc_row = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32),8),acc_row,8)
+                vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_xu_v_f32m1(__riscv_vrgather_vv_u16mf2(__riscv_vle16_v_u16mf2(b_ptr[b].d,8),changemask,8),8);
+                vfloat32m1_t row_scale_f32 = __riscv_vfwcvt_x_f_v_i32m1( __riscv_vle16_v_f16mf2(a_ptr[b].d,vl/4),vl/4);
+
+               acc_row = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32),8),acc_row,8);
             }
             // Accumulated output values permuted so as to be stored in appropriate order post accumulation
             acc_row = __riscv_vrgather_vv_f32m1(acc_row,finalpermutemask);
@@ -2943,6 +2947,352 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
                 _mm256_storeu_ps((float *)(s + ((y * 4 + i) * bs + x * 8)), acc_rows[i]);
             }
         }
+    }
+#elif defined(__riscv_v_intrinsic)
+    const block_q4_0x8 * b_ptr_start = (const block_q4_0x8 *)vx;
+    const block_q8_0x4 * a_ptr_start = (const block_q8_0x4 *)vy;
+    int64_t b_nb = n / QK4_0;
+    int64_t y = 0;
+
+    uint8_t requiredOrder_[32] = {16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
+    vuint8m1_t requiredOrder_ = __riscv_vle8_v_u8m1(mask_,32);
+
+    //生成240的掩码
+    vuint8m1_t idx = __riscv_vid_v_u8m1(32);  // 生成从0到31的索引向量
+    vuint8m1_t idx_mod8 = __riscv_vand_vx_u8m1(idx, 7, 32);  // 将索引对8取模，生成0到7的循环模式
+    vbool8_t mask_240 = __riscv_vmsltu_vx_u8m1_b8(idx_mod8, 4, 32);  // 生成小于4的掩码，即11110000模式
+
+    //生成204的掩码
+    vuint8mf4_t idx2 = __riscv_vid_v_i8mf4(8);  // 生成从0到31的索引向量
+    vuint8mf4_t idx_mod4 = __riscv_vand_vx_u8mf4(idx2, 3, 8);  // 将索引对4取模，生成0到4的循环模式
+    vbool32_t mask_204 = __riscv_vmsltu_vx_u8mf4_b32(idx_mod8, 2, 8);  // 生成小于2的掩码，即1100模式
+
+    //生成136的掩码
+    uint8_t mask_136[32] = {0,1,2,3,8,9,10,11,0,1,2,3,8,9,10,11,16,17,18,19,24,25,26,27,16,17,18,19,24,25,26,27};
+    vuint8m1_t vmask_136 = __riscv_vle8_v_u8m1(mask_136,32);
+    //生成221的掩码
+    uint8_t mask_221[32] = {4,5,6,7,12,13,14,15,4,5,6,7,12,13,14,15,20,21,22,23,28,29,30,31,20,21,22,23,28,29,30,31};
+    vuint8m1_t vmask_221 = __riscv_vle8_v_u8m1(mask_221,32);
+    //生成160的掩码
+    uint8_t mask_160[32] = {0,1,2,3,0,1,2,3,8,9,10,11,8,9,10,11,16,17,18,19,16,17,18,19,24,25,26,27,24,25,26,27};
+    vuint8m1_t vmask_160 = __riscv_vle8_v_u8m1(mask_160,32);
+    //生成245的掩码
+    uint8_t mask_245[32] = {4,5,6,7,4,5,6,7,12,13,14,15,12,13,14,15,20,21,22,23,20,21,22,23,28,29,30,31,28,29,30,31};
+    vuint8m1_t vmask_245 = __riscv_vle8_v_u8m1(mask_245,32);
+    //生成78的掩码
+    uint8_t mask_78[32] = {8,9,10,11,12,13,14,15,0,1,2,3,4,5,6,7,24,25,26,27,28,29,30,31,16,17,18,19,20,21,22,23};
+    vuint8m1_t vmask_78 = __riscv_vle8_v_u8m1(mask_78,32);
+    vuint32m1_t vdown = __riscv_vid_v_u32m1(32); // 生成索引向量
+    vdown = __riscv_vand_vx_u32m1(index, 15, 32); // 将索引限制在前半部分 (7 是用于掩码的值)
+
+    // Take group of four block_q8_0x4 structures at each pass of the loop and perform dot product operation
+    int anr = nr - nr %16; // Used to align nr with boundary of 16
+
+    for (; y < anr / 4; y += 4) {
+        const block_q8_0x4 * a_ptrs[4];
+
+        a_ptrs[0] = a_ptr_start + (y * nb);
+        for (int i = 0; i < 3; ++i) {
+            a_ptrs[i + 1] = a_ptrs[i] + nb;
+        }
+
+        // Take group of eight block_q4_0x8 structures at each pass of the loop and perform dot product operation
+        for (int64_t x = 0; x < nc / 8; x++){
+            const block_q4_0x8 * b_ptr = b_ptr_start + (x * b_nb);
+
+            vfloat32m1_t acc_rows[16]; 
+            for(int i=0;i<16;i++){
+                acc_rows[i]= __riscv_vfmv_v_f_f32m1(0.0,vl/8);
+            }
+
+            for (int64_t b = 0; b < nb; b++) {
+                // Load the eight block_q4_0 quantized values interleaved with each other in chunks of eight - B0,B1 ....B6,B7
+                const vuint8m1_t rhs_raw_mat_0123_0 __riscv_vle8_v_u8m1(b_ptr[b].qs,32);
+                const vuint8m1_t rhs_raw_mat_4567_0 __riscv_vle8_v_u8m1(b_ptr[b].qs + 32,32);
+                const vuint8m1_t rhs_raw_mat_0123_1 __riscv_vle8_v_u8m1(b_ptr[b].qs + 64,32);
+                const vuint8m1_t rhs_raw_mat_4567_1 __riscv_vle8_v_u8m1(b_ptr[b].qs + 96,32);
+
+                const vuint8m1_t rhs_raw_mat_0145_0 = __riscv_vmerge_vvm_u8m1(rhs_raw_mat_0123_0,__riscv_vrgather_vv_u8m1(rhs_raw_mat_4567_0,requiredOrder_,32),mask_240,32);
+                const vuint8m1_t rhs_raw_mat_2367_0 = __riscv_vmerge_vvm_u8m1(__riscv_vrgather_vv_u8m1(rhs_raw_mat_0123_0,requiredOrder_,32),rhs_raw_mat_4567_0,mask_240,32);
+                const vuint8m1_t rhs_raw_mat_0145_1 = __riscv_vmerge_vvm_u8m1(rhs_raw_mat_0123_1,__riscv_vrgather_vv_u8m1(rhs_raw_mat_4567_1,requiredOrder_,32),mask_240,32);
+                const vuint8m1_t rhs_raw_mat_2367_1 = __riscv_vmerge_vvm_u8m1(__riscv_vrgather_vv_u8m1(rhs_raw_mat_0123_1,requiredOrder_,32),rhs_raw_mat_4567_1,mask_240,32);
+
+                // 4-bit -> 8-bit - Sign is maintained
+                vint8m1_t rhs_mat_0145_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_mat_0145_0, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_2367_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_2367_0, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_0145_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_0145_1, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_2367_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_2367_1, 0x0F, vl),vl);
+
+                vint8m1_t rhs_mat_0145_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_mat_0145_2, 0x04, 32),32);
+                vint8m1_t rhs_mat_2367_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_mat_2367_2, 0x04, 32),32);
+                vint8m1_t rhs_mat_0145_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_mat_0145_1, 0x04, 32),32);
+                vint8m1_t rhs_mat_2367_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_mat_2367_1, 0x04, 32),32);
+
+                // Shuffle pattern one - right side input
+                const vint8m1_t rhs_mat_0145_0_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_0,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_0_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_0,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_1_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_1,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_1_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_1,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_2_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_2,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_2_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_2,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_3_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_3,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_3_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_3,vmask_136,32);
+                // Shuffle pattern two - right side input
+                const vint8m1_t rhs_mat_0145_0_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_0,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_0_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_0,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_1_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_1,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_1_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_1,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_2_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_2,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_2_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_2,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_3_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_3,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_3_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_3,vmask_221,32);
+
+                // Scale values - Load the wight scale values of block_q4_0x8
+                // const __m256 col_scale_f32 = GGML_F32Cx8_LOAD(b_ptr[b].d);
+                // vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vrgather_vv_i16mf2(__riscv_vle16_v_i16mf2(x,8),indices_,8),8);
+                vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_xu_v_f32m1(__riscv_vle16_v_u16mf2(b_ptr[b].d,8),8)
+
+                 // Process LHS in groups of four
+                for (int rp = 0; rp < 4; rp++) {
+                    const vint8m1_t lhs_mat_0123_0 = __riscv_vle8_v_i8m1(a_ptrs[rp][b].qs,32);
+                    const vint8m1_t lhs_mat_01_0 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_0, lhs_mat_0123_0, 32 / 2, 32);
+                    const vint8m1_t lhs_mat_23_0 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_0, 32 / 2, 32),vdown,32);
+                    const vint8m1_t lhs_mat_0123_1 = __riscv_vle8_v_i8m1(a_ptrs[rp][b].qs + 32,32);
+                    const vint8m1_t lhs_mat_01_1 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_1, lhs_mat_0123_1, 32 / 2, 32);
+                    const vint8m1_t lhs_mat_23_1 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_1, 32 / 2, 32),vdown,32);
+                    const vint8m1_t lhs_mat_0123_2 = __riscv_vle8_v_i8m1(a_ptrs[rp][b].qs + 64,32);
+                    const vint8m1_t lhs_mat_01_2 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_2, lhs_mat_0123_2, 32 / 2, 32);
+                    const vint8m1_t lhs_mat_23_2 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_2, 32 / 2, 32),vdown,32);
+                    const vint8m1_t lhs_mat_0123_3 = __riscv_vle8_v_i8m1(a_ptrs[rp][b].qs + 96,32);
+                    const vint8m1_t lhs_mat_01_3 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_3, lhs_mat_0123_3, 32 / 2, 32);
+                    const vint8m1_t lhs_mat_23_3 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_3, 32 / 2, 32),vdown,32);
+
+                    const vint8m1_t lhs_mat_01_0_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_0,vmask_160,32);
+                    const vint8m1_t lhs_mat_23_0_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_0,vmask_160,32);
+                    const vint8m1_t lhs_mat_01_1_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_1,vmask_160,32);
+                    const vint8m1_t lhs_mat_23_1_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_1,vmask_160,32);
+                    const vint8m1_t lhs_mat_01_2_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_2,vmask_160,32);
+                    const vint8m1_t lhs_mat_23_2_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_2,vmask_160,32);
+                    const vint8m1_t lhs_mat_01_3_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_3,vmask_160,32);
+                    const vint8m1_t lhs_mat_23_3_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_3,vmask_160,32);
+
+                    const vint8m1_t lhs_mat_01_0_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_0,vmask_245,32);
+                    const vint8m1_t lhs_mat_23_0_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_0,vmask_245,32);
+                    const vint8m1_t lhs_mat_01_1_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_1,vmask_245,32);
+                    const vint8m1_t lhs_mat_23_1_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_1,vmask_245,32);
+                    const vint8m1_t lhs_mat_01_2_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_2,vmask_245,32);
+                    const vint8m1_t lhs_mat_23_2_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_2,vmask_245,32);
+                    const vint8m1_t lhs_mat_01_3_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_3,vmask_245,32);
+                    const vint8m1_t lhs_mat_23_3_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_3,vmask_245,32);
+
+                    const vint32m1_t iacc_mat_00_sp1 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp1, rhs_mat_0145_3_sp1),part_wredsum(lhs_mat_01_2_sp1, rhs_mat_0145_2_sp1),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp1, rhs_mat_0145_1_sp1),part_wredsum(lhs_mat_01_0_sp1, rhs_mat_0145_0_sp1),8),8);
+                    const vint32m1_t iacc_mat_01_sp1 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp1, rhs_mat_2367_3_sp1),part_wredsum(lhs_mat_01_2_sp1, rhs_mat_2367_2_sp1),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp1, rhs_mat_2367_1_sp1),part_wredsum(lhs_mat_01_0_sp1, rhs_mat_2367_0_sp1),8),8);
+                    const vint32m1_t iacc_mat_10_sp1 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp1, rhs_mat_0145_3_sp1),part_wredsum(lhs_mat_23_2_sp1, rhs_mat_0145_2_sp1),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp1, rhs_mat_0145_1_sp1),part_wredsum(lhs_mat_23_0_sp1, rhs_mat_0145_0_sp1),8),8);
+                    const vint32m1_t iacc_mat_11_sp1 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp1, rhs_mat_2367_3_sp1),part_wredsum(lhs_mat_23_2_sp1, rhs_mat_2367_2_sp1),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp1, rhs_mat_2367_1_sp1),part_wredsum(lhs_mat_23_0_sp1, rhs_mat_2367_0_sp1),8),8);
+                    const vint32m1_t iacc_mat_00_sp2 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp2, rhs_mat_0145_3_sp2),part_wredsum(lhs_mat_01_2_sp2, rhs_mat_0145_2_sp2),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp2, rhs_mat_0145_1_sp2),part_wredsum(lhs_mat_01_0_sp2, rhs_mat_0145_0_sp2),8),8);
+                    const vint32m1_t iacc_mat_01_sp2 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp2, rhs_mat_2367_3_sp2),part_wredsum(lhs_mat_01_2_sp2, rhs_mat_2367_2_sp2),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp2, rhs_mat_2367_1_sp2),part_wredsum(lhs_mat_01_0_sp2, rhs_mat_2367_0_sp2),8),8);
+                    const vint32m1_t iacc_mat_10_sp2 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp2, rhs_mat_0145_3_sp2),part_wredsum(lhs_mat_23_2_sp2, rhs_mat_0145_2_sp2),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp2, rhs_mat_0145_1_sp2),part_wredsum(lhs_mat_23_0_sp2, rhs_mat_0145_0_sp2),8),8);
+                    const vint32m1_t iacc_mat_11_sp2 = 
+                    __riscv_vadd_vv_i32m1(
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp2, rhs_mat_2367_3_sp2),part_wredsum(lhs_mat_23_2_sp2, rhs_mat_2367_2_sp2),8),
+                    __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp2, rhs_mat_2367_1_sp2),part_wredsum(lhs_mat_23_0_sp2, rhs_mat_2367_0_sp2),8),8);
+
+                    const vint32m1_t iacc_mat_00 = __riscv_vadd_vv_i32m1(iacc_mat_00_sp1,iacc_mat_00_sp2,8);
+                    const vint32m1_t iacc_mat_01 = __riscv_vadd_vv_i32m1(iacc_mat_01_sp1,iacc_mat_01_sp2,8);
+                    const vint32m1_t iacc_mat_10 = __riscv_vadd_vv_i32m1(iacc_mat_10_sp1,iacc_mat_10_sp2,8);
+                    const vint32m1_t iacc_mat_11 = __riscv_vadd_vv_i32m1(iacc_mat_11_sp1,iacc_mat_11_sp2,8);
+
+                    const vint32m1_t iacc_row_0 = __riscv_vmerge_vvm_i32m1(iacc_mat_00,__riscv_vrgather_vv_i32m1(iacc_mat_01,8),mask_204,8);
+                    const vint32m1_t iacc_row_1 = __riscv_vmerge_vvm_i32m1(__riscv_vrgather_vv_i32m1(iacc_mat_00,8),iacc_mat_01,mask_204,8);
+                    const vint32m1_t iacc_row_2 = __riscv_vmerge_vvm_i32m1(iacc_mat_10,__riscv_vrgather_vv_i32m1(iacc_mat_11,8),mask_204,8);
+                    const vint32m1_t iacc_row_3 = __riscv_vmerge_vvm_i32m1(__riscv_vrgather_vv_i32m1(iacc_mat_10,8),iacc_mat_11,mask_204,8);
+
+                    // Load the scale(d) values for all the 4 Q8_0 blocks and repeat it across lanes
+                    const vfloat32m1_t row_scale_f32_0 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptrs[rp][b].d[0],8),8);
+                    const vfloat32m1_t row_scale_f32_1 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptrs[rp][b].d[1],8),8);
+                    const vfloat32m1_t row_scale_f32_2 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptrs[rp][b].d[2],8),8);
+                    const vfloat32m1_t row_scale_f32_3 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptrs[rp][b].d[3],8),8);
+
+                    acc_rows[rp * 4] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows[rp * 4],8);
+                    acc_rows[rp * 4 + 1] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows[rp * 4 + 1],8);
+                    acc_rows[rp * 4 + 2] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows[rp * 4 + 2],8);
+                    acc_rows[rp * 4 + 3] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows[rp * 4 + 3],8);
+                }
+            }
+             for (int i = 0; i < 16; i++) {
+                __riscv_vse32_v_f32m1((s + ((y * 4 + i) * bs + x * 8)), acc_rows[i], 8);
+             }
+        }
+    }
+    // Take a block_q8_0x4 structures at each pass of the loop and perform dot product operation
+    for (; y < nr / 4; y ++) {
+         const block_q8_0x4 * a_ptr = a_ptr_start + (y * nb);
+
+        // Load the eight block_q4_0 quantized values interleaved with each other in chunks of eight - B0,B1 ....B6,B7
+        for (int64_t x = 0; x < nc / 8; x++) {
+            const block_q4_0x8 * b_ptr = b_ptr_start + (x * b_nb);
+
+            vfloat32m1_t acc_rows[4]; 
+            for(int i=0;i<4;i++){
+                acc_rows[i]= __riscv_vfmv_v_f_f32m1(0.0,vl/8);
+            }
+
+            for (int64_t b = 0; b < nb; b++) {
+                const vuint8m1_t rhs_raw_mat_0123_0 __riscv_vle8_v_u8m1(b_ptr[b].qs,32);
+                const vuint8m1_t rhs_raw_mat_4567_0 __riscv_vle8_v_u8m1(b_ptr[b].qs + 32,32);
+                const vuint8m1_t rhs_raw_mat_0123_1 __riscv_vle8_v_u8m1(b_ptr[b].qs + 64,32);
+                const vuint8m1_t rhs_raw_mat_4567_1 __riscv_vle8_v_u8m1(b_ptr[b].qs + 96,32);
+
+                const vuint8m1_t rhs_raw_mat_0145_0 = __riscv_vmerge_vvm_u8m1(rhs_raw_mat_0123_0,__riscv_vrgather_vv_u8m1(rhs_raw_mat_4567_0,requiredOrder_,32),mask_240,32);
+                const vuint8m1_t rhs_raw_mat_2367_0 = __riscv_vmerge_vvm_u8m1(__riscv_vrgather_vv_u8m1(rhs_raw_mat_0123_0,requiredOrder_,32),rhs_raw_mat_4567_0,mask_240,32);
+                const vuint8m1_t rhs_raw_mat_0145_1 = __riscv_vmerge_vvm_u8m1(rhs_raw_mat_0123_1,__riscv_vrgather_vv_u8m1(rhs_raw_mat_4567_1,requiredOrder_,32),mask_240,32);
+                const vuint8m1_t rhs_raw_mat_2367_1 = __riscv_vmerge_vvm_u8m1(__riscv_vrgather_vv_u8m1(rhs_raw_mat_0123_1,requiredOrder_,32),rhs_raw_mat_4567_1,mask_240,32);
+
+                // 4-bit -> 8-bit - Sign is maintained
+                vint8m1_t rhs_mat_0145_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_raw_mat_0145_0, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_2367_0 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_2367_0, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_0145_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_0145_1, 0x0F, vl),vl);
+                vint8m1_t rhs_mat_2367_1 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vand_vx_u8m1(rhs_mat_2367_1, 0x0F, vl),vl);
+
+                vint8m1_t rhs_mat_0145_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_mat_0145_2, 0x04, 32),32);
+                vint8m1_t rhs_mat_2367_2 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_mat_2367_2, 0x04, 32),32);
+                vint8m1_t rhs_mat_0145_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_mat_0145_1, 0x04, 32),32);
+                vint8m1_t rhs_mat_2367_3 = __riscv_vrgather_vv_i8m1(signextendlut,__riscv_vsrl_vx_u8m1(rhs_raw_mat_2367_1, 0x04, 32),32);
+
+                // Shuffle pattern one - right side input
+                const vint8m1_t rhs_mat_0145_0_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_0,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_0_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_0,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_1_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_1,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_1_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_1,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_2_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_2,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_2_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_2,vmask_136,32);
+                const vint8m1_t rhs_mat_0145_3_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_3,vmask_136,32);
+                const vint8m1_t rhs_mat_2367_3_sp1 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_3,vmask_136,32);
+                // Shuffle pattern two - right side input
+                const vint8m1_t rhs_mat_0145_0_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_0,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_0_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_0,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_1_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_1,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_1_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_1,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_2_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_2,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_2_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_2,vmask_221,32);
+                const vint8m1_t rhs_mat_0145_3_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_0145_3,vmask_221,32);
+                const vint8m1_t rhs_mat_2367_3_sp2 = __riscv_vrgather_vv_i8m1(rhs_mat_2367_3,vmask_221,32);
+
+                vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_xu_v_f32m1(__riscv_vle16_v_u16mf2(b_ptr[b].d,8),8)
+
+                const vint8m1_t lhs_mat_0123_0 = __riscv_vle8_v_i8m1(a_ptr[b].qs,32);
+                const vint8m1_t lhs_mat_01_0 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_0, lhs_mat_0123_0, 32 / 2, 32);
+                const vint8m1_t lhs_mat_23_0 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_0, 32 / 2, 32),vdown,32);
+                const vint8m1_t lhs_mat_0123_1 = __riscv_vle8_v_i8m1(a_ptr[b].qs + 32,32);
+                const vint8m1_t lhs_mat_01_1 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_1, lhs_mat_0123_1, 32 / 2, 32);
+                const vint8m1_t lhs_mat_23_1 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_1, 32 / 2, 32),vdown,32);
+                const vint8m1_t lhs_mat_0123_2 = __riscv_vle8_v_i8m1(a_ptr[b].qs + 64,32);
+                const vint8m1_t lhs_mat_01_2 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_2, lhs_mat_0123_2, 32 / 2, 32);
+                const vint8m1_t lhs_mat_23_2 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_2, 32 / 2, 32),vdown,32);
+                const vint8m1_t lhs_mat_0123_3 = __riscv_vle8_v_i8m1(a_ptr[b].qs + 96,32);
+                const vint8m1_t lhs_mat_01_3 = __riscv_vslideup_vx_i8m1(lhs_mat_0123_3, lhs_mat_0123_3, 32 / 2, 32);
+                const vint8m1_t lhs_mat_23_3 = __riscv_vrgather_vv_i32m1(__riscv_vslidedown_vx_i8m1(lhs_mat_0123_3, 32 / 2, 32),vdown,32);
+
+                const vint8m1_t lhs_mat_01_0_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_0,vmask_160,32);
+                const vint8m1_t lhs_mat_23_0_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_0,vmask_160,32);
+                const vint8m1_t lhs_mat_01_1_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_1,vmask_160,32);
+                const vint8m1_t lhs_mat_23_1_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_1,vmask_160,32);
+                const vint8m1_t lhs_mat_01_2_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_2,vmask_160,32);
+                const vint8m1_t lhs_mat_23_2_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_2,vmask_160,32);
+                const vint8m1_t lhs_mat_01_3_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_01_3,vmask_160,32);
+                const vint8m1_t lhs_mat_23_3_sp1 = __riscv_vrgather_vv_i8m1(lhs_mat_23_3,vmask_160,32);
+
+                const vint8m1_t lhs_mat_01_0_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_0,vmask_245,32);
+                const vint8m1_t lhs_mat_23_0_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_0,vmask_245,32);
+                const vint8m1_t lhs_mat_01_1_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_1,vmask_245,32);
+                const vint8m1_t lhs_mat_23_1_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_1,vmask_245,32);
+                const vint8m1_t lhs_mat_01_2_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_2,vmask_245,32);
+                const vint8m1_t lhs_mat_23_2_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_2,vmask_245,32);
+                const vint8m1_t lhs_mat_01_3_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_01_3,vmask_245,32);
+                const vint8m1_t lhs_mat_23_3_sp2 = __riscv_vrgather_vv_i8m1(lhs_mat_23_3,vmask_245,32);
+
+                const vint32m1_t iacc_mat_00_sp1 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp1, rhs_mat_0145_3_sp1),part_wredsum(lhs_mat_01_2_sp1, rhs_mat_0145_2_sp1),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp1, rhs_mat_0145_1_sp1),part_wredsum(lhs_mat_01_0_sp1, rhs_mat_0145_0_sp1),8),8);
+                const vint32m1_t iacc_mat_01_sp1 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp1, rhs_mat_2367_3_sp1),part_wredsum(lhs_mat_01_2_sp1, rhs_mat_2367_2_sp1),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp1, rhs_mat_2367_1_sp1),part_wredsum(lhs_mat_01_0_sp1, rhs_mat_2367_0_sp1),8),8);
+                const vint32m1_t iacc_mat_10_sp1 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp1, rhs_mat_0145_3_sp1),part_wredsum(lhs_mat_23_2_sp1, rhs_mat_0145_2_sp1),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp1, rhs_mat_0145_1_sp1),part_wredsum(lhs_mat_23_0_sp1, rhs_mat_0145_0_sp1),8),8);
+                const vint32m1_t iacc_mat_11_sp1 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp1, rhs_mat_2367_3_sp1),part_wredsum(lhs_mat_23_2_sp1, rhs_mat_2367_2_sp1),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp1, rhs_mat_2367_1_sp1),part_wredsum(lhs_mat_23_0_sp1, rhs_mat_2367_0_sp1),8),8);
+                const vint32m1_t iacc_mat_00_sp2 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp2, rhs_mat_0145_3_sp2),part_wredsum(lhs_mat_01_2_sp2, rhs_mat_0145_2_sp2),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp2, rhs_mat_0145_1_sp2),part_wredsum(lhs_mat_01_0_sp2, rhs_mat_0145_0_sp2),8),8);
+                const vint32m1_t iacc_mat_01_sp2 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_3_sp2, rhs_mat_2367_3_sp2),part_wredsum(lhs_mat_01_2_sp2, rhs_mat_2367_2_sp2),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_01_1_sp2, rhs_mat_2367_1_sp2),part_wredsum(lhs_mat_01_0_sp2, rhs_mat_2367_0_sp2),8),8);
+                const vint32m1_t iacc_mat_10_sp2 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp2, rhs_mat_0145_3_sp2),part_wredsum(lhs_mat_23_2_sp2, rhs_mat_0145_2_sp2),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp2, rhs_mat_0145_1_sp2),part_wredsum(lhs_mat_23_0_sp2, rhs_mat_0145_0_sp2),8),8);
+                const vint32m1_t iacc_mat_11_sp2 = 
+                __riscv_vadd_vv_i32m1(
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_3_sp2, rhs_mat_2367_3_sp2),part_wredsum(lhs_mat_23_2_sp2, rhs_mat_2367_2_sp2),8),
+                __riscv_vadd_vv_i32m1(part_wredsum(lhs_mat_23_1_sp2, rhs_mat_2367_1_sp2),part_wredsum(lhs_mat_23_0_sp2, rhs_mat_2367_0_sp2),8),8);
+
+                const vint32m1_t iacc_mat_00 = __riscv_vadd_vv_i32m1(iacc_mat_00_sp1,iacc_mat_00_sp2,8);
+                const vint32m1_t iacc_mat_01 = __riscv_vadd_vv_i32m1(iacc_mat_01_sp1,iacc_mat_01_sp2,8);
+                const vint32m1_t iacc_mat_10 = __riscv_vadd_vv_i32m1(iacc_mat_10_sp1,iacc_mat_10_sp2,8);
+                const vint32m1_t iacc_mat_11 = __riscv_vadd_vv_i32m1(iacc_mat_11_sp1,iacc_mat_11_sp2,8);
+
+                const vint32m1_t iacc_row_0 = __riscv_vmerge_vvm_i32m1(iacc_mat_00,__riscv_vrgather_vv_i32m1(iacc_mat_01,8),mask_204,8);
+                const vint32m1_t iacc_row_1 = __riscv_vmerge_vvm_i32m1(__riscv_vrgather_vv_i32m1(iacc_mat_00,8),iacc_mat_01,mask_204,8);
+                const vint32m1_t iacc_row_2 = __riscv_vmerge_vvm_i32m1(iacc_mat_10,__riscv_vrgather_vv_i32m1(iacc_mat_11,8),mask_204,8);
+                const vint32m1_t iacc_row_3 = __riscv_vmerge_vvm_i32m1(__riscv_vrgather_vv_i32m1(iacc_mat_10,8),iacc_mat_11,mask_204,8);
+
+                const vfloat32m1_t row_scale_f32_0 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptr[b].d[0],8),8);
+                const vfloat32m1_t row_scale_f32_1 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptr[b].d[1],8),8);
+                const vfloat32m1_t row_scale_f32_2 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptr[b].d[2],8),8);
+                const vfloat32m1_t row_scale_f32_3 = __riscv_vfwcvt_f_x_v_f32m1(__riscv_vmv_v_x_i16mf2(a_ptr[b].d[3],8),8);
+
+                acc_rows[0] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows[0],8);
+                acc_rows[1] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows[1],8);
+                acc_rows[2] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows[2],8);
+                acc_rows[3] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows[3],8);
+
+            }
+            // Store the accumulated values
+            for (int i = 0; i < 4; i++) {
+                __riscv_vse32_v_f32m1((s + ((y * 4 + i) * bs + x * 8)), acc_rows[i],8);
+            }
+        }
+
+            
     }
 #else
     float sumf[4][8];
