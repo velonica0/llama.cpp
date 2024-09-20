@@ -448,6 +448,7 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
         }
     }
 #elif defined(__riscv_v_intrinsic)
+    printf("_riscv_v_quantize_quantize_quantize \n");
     size_t vl = __riscv_vsetvl_e32m1(32);
     float id[4];
     vfloat32m1_t srcv[4][4];
@@ -1022,7 +1023,7 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
         }
     }
 #elif defined(__riscv_v_intrinsic)
-
+    printf("_riscv_v_gemv_gemv_gemv_gemv_gemv_gemv_gemv \n");
     int8_t lut[32] = {0,1,2,3,4,5,6,7,-8,-7,-6,-5,-4,-3,-2,-1,0,1,2,3,4,5,6,7,-8,-7,-6,-5,-4,-3,-2,-1};
     vint8m1_t signextendlut = __riscv_vle8_v_i8m1(lut,32);
     uint8_t mask_[32] = {4,5,6,7,0,1,2,3,12,13,14,15,8,9,10,11,20,21,22,23,16,17,18,19,28,29,30,31,24,25,26,27};
@@ -2949,6 +2950,7 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
         }
     }
 #elif defined(__riscv_v_intrinsic)
+    printf("_riscv_v_gemm_gemm_gemm_gemm_gemm_gemm_gemm \n");
     const block_q4_0x8 * b_ptr_start = (const block_q4_0x8 *)vx;
     const block_q8_0x4 * a_ptr_start = (const block_q8_0x4 *)vy;
     int64_t b_nb = n / QK4_0;
