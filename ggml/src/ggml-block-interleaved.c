@@ -466,11 +466,11 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
     float id[4];
     // vfloat32m1_t srcv[4][4];
     // vfloat32m1_t idvec[4];
-    vfloat32m1_t srcv_0_0;vfloat32m1_t srcv_0_1;vfloat32m1_t srcv_0_2;vfloat32m1_t srcv_0_3;
-    vfloat32m1_t srcv_1_0;vfloat32m1_t srcv_1_1;vfloat32m1_t srcv_1_2;vfloat32m1_t srcv_1_3;
-    vfloat32m1_t srcv_2_0;vfloat32m1_t srcv_2_1;vfloat32m1_t srcv_2_2;vfloat32m1_t srcv_2_3;
-    vfloat32m1_t srcv_3_0;vfloat32m1_t srcv_3_1;vfloat32m1_t srcv_3_2;vfloat32m1_t srcv_3_3;
-    vfloat32m1_t idvec_0;vfloat32m1_t idvec_1;vfloat32m1_t idvec_2;vfloat32m1_t idvec_3;
+    vfloat32m1_t srcv_0_0, srcv_0_1, srcv_0_2, srcv_0_3;
+    vfloat32m1_t srcv_1_0, srcv_1_1, srcv_1_2, srcv_1_3;
+    vfloat32m1_t srcv_2_0, srcv_2_1, srcv_2_2, srcv_2_3;
+    vfloat32m1_t srcv_3_0, srcv_3_1, srcv_3_2, srcv_3_3;
+    vfloat32m1_t idvec_0, idvec_1, idvec_2, idvec_3;
     const vfloat32m1_t signBit = __riscv_vfmv_v_f_f32m1(-0.0f, vl);
 
     for (int i = 0; i < nb; i++) {
@@ -540,31 +540,32 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
 
         // The loop iterates four times - The aim is to get 4 corresponding chunks of eight bytes from the original weight blocks that are interleaved
         for (int j = 0; j < 4; j++) {
+            vint32m1_t v0,v1,v2,v3;
             switch (j)
             {
             case 0:
-                vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_0,8),vl);
-                vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_0, idvec_1,8),vl);
-                vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_2,8),vl);
-                vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_3,8),vl);
+                v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_0,8),vl);
+                v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_0, idvec_1,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_3,8),vl);
                 break;
             case 1:
-                vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_0,8),vl);
-                vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_1, idvec_1,8),vl);
-                vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_2,8),vl);
-                vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_3,8),vl);
+                v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_0,8),vl);
+                v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_1, idvec_1,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_3,8),vl);
                 break;
             case 2:
-                vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_0,8),vl);
-                vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_2, idvec_1,8),vl);
-                vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_2,8),vl);
-                vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_3,8),vl);
+                v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_0,8),vl);
+                v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_2, idvec_1,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_3,8),vl);
                 break;
             case 3:
-                vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_0,8),vl);
-                vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_3, idvec_1,8),vl);
-                vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_2,8),vl);
-                vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_3,8),vl);
+                v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_0,8),vl);
+                v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_3, idvec_1,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_3,8),vl);
                 break;
             
             default:
