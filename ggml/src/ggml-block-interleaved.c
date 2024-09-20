@@ -116,11 +116,18 @@ static inline __m256i mul_sum_i8_pairs_int(const __m256i x, const __m256i y) {
 
 #if defined(__riscv_v_intrinsic)
 #define _RVV_ACC_ROW_INIT(i) acc_rows_##i = __riscv_vfmv_v_f_f32m1(0.0,8);
-#define _RVV_ACC_ROW_STORE_matrix(i) __riscv_vse32_v_f32m1((s + ((y * 4 + i) * bs + x * 8)), acc_rows_##i##, 8);
-#define _RVV_ACC_ROW_FADD_0(rp) acc_rows_##rp * 4 +0 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_##rp * 4 +0,8);
-#define _RVV_ACC_ROW_FADD_1(rp) acc_rows_##rp * 4 +1 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_##rp * 4 +1,8);
-#define _RVV_ACC_ROW_FADD_2(rp) acc_rows_##rp * 4 +2 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_##rp * 4 +2,8);
-#define _RVV_ACC_ROW_FADD_3(rp) acc_rows_##rp * 4 +3 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_##rp * 4 +3,8);
+#define _RVV_ACC_ROW_STORE_matrix(i) __riscv_vse32_v_f32m1((s + ((y * 4 + i) * bs + x * 8)), acc_rows_##i, 8);
+// #define _RVV_ACC_ROW_FADD_0(rp) acc_rows_##rp * 4 +0 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_##rp * 4 +0,8);
+// #define _RVV_ACC_ROW_FADD_1(rp) acc_rows_##rp * 4 +1 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_##rp * 4 +1,8);
+// #define _RVV_ACC_ROW_FADD_2(rp) acc_rows_##rp * 4 +2 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_##rp * 4 +2,8);
+// #define _RVV_ACC_ROW_FADD_3(rp) acc_rows_##rp * 4 +3 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_##rp * 4 +3,8);
+#define _RVV_QUANTIZE_STORE(row_iter)   srcv_##row_iter##_0 = v0;  srcv_##row_iter##_1 = v1;  srcv_##row_iter##_2 = v2;   srcv_# row_iter##_3 = v3;  idvec_##row_iter##_v = __riscv_vfmv_v_f_f32m1(id[row_iter],vl);
+#define SRVC0J(j) srcv_0_##j
+#define SRVC1J(j) srcv_1_##j
+#define SRVC2J(j) srcv_2_##j
+#define SRVC3J(j) srcv_3_##j
+
+
 //TODO:RVV vector expansion uses VL as the division unit, and part operations cannot be performed inside the RVV variable. If there is a good method, I hope it will be updated.
 static inline vint32m1_t part_wredsum(vint8m1_t x, vint8m1_t y){
         //part_wredsum
@@ -457,8 +464,13 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
     printf("_riscv_v_quantize_quantize_quantize \n");
     size_t vl = __riscv_vsetvl_e32m1(8);
     float id[4];
-    vfloat32m1_t srcv[4][4];
-    vfloat32m1_t idvec[4];
+    // vfloat32m1_t srcv[4][4];
+    // vfloat32m1_t idvec[4];
+    vfloat32m1_t srcv_0_0;vfloat32m1_t srcv_0_1;vfloat32m1_t srcv_0_2;vfloat32m1_t srcv_0_3;
+    vfloat32m1_t srcv_1_0;vfloat32m1_t srcv_1_1;vfloat32m1_t srcv_1_2;vfloat32m1_t srcv_1_3;
+    vfloat32m1_t srcv_2_0;vfloat32m1_t srcv_2_1;vfloat32m1_t srcv_2_2;vfloat32m1_t srcv_2_3;
+    vfloat32m1_t srcv_2_0;vfloat32m1_t srcv_3_1;vfloat32m1_t srcv_3_2;vfloat32m1_t srcv_3_3;
+    vfloat32m1_t idvec_0_v;vfloat32m1_t idvec_1_v;vfloat32m1_t idvec_2_v;vfloat32m1_t idvec_3_v;
     const vfloat32m1_t signBit = __riscv_vfmv_v_f_f32m1(-0.0f, vl);
 
     for (int i = 0; i < nb; i++) {
@@ -484,19 +496,21 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
             y[i].d[row_iter] = GGML_FP32_TO_FP16(d);
 
             // Store the values in blocks of eight values - Aim is to use these later for block interleaving
-            srcv[row_iter][0] = v0;
-            srcv[row_iter][1] = v1;
-            srcv[row_iter][2] = v2;
-            srcv[row_iter][3] = v3;
-            idvec[row_iter] = __riscv_vfmv_v_f_f32m1(id[row_iter],vl);
+            // srcv[row_iter][0] = v0;
+            // srcv[row_iter][1] = v1;
+            // srcv[row_iter][2] = v2;
+            // srcv[row_iter][3] = v3;
+            // idvec[row_iter] = __riscv_vfmv_v_f_f32m1(id[row_iter],vl);
+            // srcv_##row_iter##_0 = v0;  srcv_##row_iter##_1 = v1;  srcv_##row_iter##_2 = v2;   srcv_# row_iter##_3 = v3;  idvec_##row_iter##_t = __riscv_vfmv_v_f_f32m1(id[row_iter],vl);
+            _RVV_QUANTIZE_STORE(row_iter)
         }
 
         // The loop iterates four times - The aim is to get 4 corresponding chunks of eight bytes from the original weight blocks that are interleaved
         for (int j = 0; j < 4; j++) {
-            vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[0][j], idvec[0]),vl);
-            vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[1][j], idvec[1]),vl);
-            vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[2][j], idvec[2]),vl);
-            vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv[3][j], idvec[3]),vl);
+            vint32m1_t v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC0J(j), idvec_0_v),vl);
+            vint32m1_t v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC1J(j), idvec_1_v),vl);
+            vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC2J(j), idvec_2_v),vl);
+            vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC3J(j), idvec_3_v),vl);
 
             vint8mf4_t v0_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v0,0,vl)),0,vl);
             vint8mf4_t v1_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v1,0,vl)),0,vl);
@@ -3152,10 +3166,39 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
                     // acc_rows[rp * 4 + 1] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows[rp * 4 + 1],8);
                     // acc_rows[rp * 4 + 2] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows[rp * 4 + 2],8);
                     // acc_rows[rp * 4 + 3] = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows[rp * 4 + 3],8);
-                    _RVV_ACC_ROW_FADD_0(rp)
-                    _RVV_ACC_ROW_FADD_1(rp)
-                    _RVV_ACC_ROW_FADD_2(rp)
-                    _RVV_ACC_ROW_FADD_3(rp)
+                    // _RVV_ACC_ROW_FADD_0(rp)
+                    // _RVV_ACC_ROW_FADD_1(rp)
+                    // _RVV_ACC_ROW_FADD_2(rp)
+                    // _RVV_ACC_ROW_FADD_3(rp)
+                    switch (rp)
+                    {
+                    case 0:
+                        acc_rows_0 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_0,8);
+                        acc_rows_1 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_1,8);
+                        acc_rows_2 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_2,8);
+                        acc_rows_3 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_3,8);
+                        break;
+                    case 1:
+                        acc_rows_4 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_4,8);
+                        acc_rows_5 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_5,8);
+                        acc_rows_6 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_6,8);
+                        acc_rows_7 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_7,8);
+                        break;
+                    case 2:
+                        acc_rows_8 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_8,8);
+                        acc_rows_9 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_9,8);
+                        acc_rows_10 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_10,8);
+                        acc_rows_11 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_11,8);
+                        break;
+                    case 3:
+                        acc_rows_12 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_0,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_0),8),acc_rows_12,8);
+                        acc_rows_13 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_1,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_1),8),acc_rows_13,8);
+                        acc_rows_14 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_2,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_2),8),acc_rows_14,8);
+                        acc_rows_15 = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc_row_3,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32_3),8),acc_rows_15,8);
+                        break;
+                    default:
+                        break;
+                    }
                 }
             }
              for (int i = 0; i < 16; i++) {
