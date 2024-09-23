@@ -3046,15 +3046,22 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     uint8_t requiredOrder_[32] = {16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15};
     vuint8m1_t requiredOrder = __riscv_vle8_v_u8m1(requiredOrder_,32);
 
+
     //生成240的掩码
     vuint8m1_t idx = __riscv_vid_v_u8m1(32);  // 生成从0到31的索引向量
-    vuint8m1_t idx_mod8 = __riscv_vand_vx_u8m1(idx, 7, 32);  // 将索引对8取模，生成0到7的循环模式
-    vbool8_t mask_240 = __riscv_vmsltu_vx_u8m1_b8(idx_mod8, 4, 32);  // 生成小于4的掩码，即11110000模式
+    //vuint8m1_t idx_mod8 = __riscv_vand_vx_u8m1(idx, 7, 32);  // 将索引对8取模，生成0到7的循环模式
+    vbool8_t mask_240 = __riscv_vmsgtu_vx_u8m1_b8(idx, 16, 32);  // 00000000111111110000000011111111
 
     //生成204的掩码
     vuint8mf4_t idx2 = __riscv_vid_v_u8mf4(8);  // 生成从0到31的索引向量
-    vuint8mf4_t idx_mod4 = __riscv_vand_vx_u8mf4(idx2, 3, 8);  // 将索引对4取模，生成0到4的循环模式
-    vbool32_t mask_204 = __riscv_vmsltu_vx_u8mf4_b32(idx_mod4, 2, 8);  // 生成小于2的掩码，即1100模式
+    // vuint8mf4_t idx_mod4 = __riscv_vand_vx_u8mf4(idx2, 3, 8);  // 将索引对4取模，生成0到4的循环模式
+    // 使用 2 作为比较值生成掩码，比较索引小于 2 的部分
+    vbool32_t mask1 = __riscv_vmsltu_vx_u8mf4_b32(idx2, 2, 8);  // 比较索引值小于 2 的位置为 1
+    // 使用 6 作为比较值生成掩码，比较索引小于 6 的部分
+    vbool32_t mask2 = __riscv_vmsltu_vx_u8mf4_b32(idx2, 6, 8);  // 比较索引值小于 6 的位置为 
+    // 使用逻辑操作生成 `00110011` 掩码，前两位和后两位为 1，中间为 0
+    vbool32_t mask_204 = __riscv_vmandn_mm_b32(mask2, mask1, 8);  // 对两部分进行逻辑与非操作
+    // vbool32_t mask_204 = __riscv_vmsltu_vx_u8mf4_b32(idx_mod4, 2, 8);  // 生成小于2的掩码，即1100模式
 
     //生成136的掩码
     uint8_t mask_136[32] = {0,1,2,3,8,9,10,11,0,1,2,3,8,9,10,11,16,17,18,19,24,25,26,27,16,17,18,19,24,25,26,27};
@@ -3091,8 +3098,22 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
         for (int64_t x = 0; x < nc / 8; x++){
             const block_q4_0x8 * b_ptr = b_ptr_start + (x * b_nb);
 
-            vfloat32m1_t acc_rows_0= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_1= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_2= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_3= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_4= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_5= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_6= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_7= __riscv_vfmv_v_f_f32m1(0.0,8);
-            vfloat32m1_t acc_rows_8= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_9= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_10= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_11= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_12= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_13= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_14= __riscv_vfmv_v_f_f32m1(0.0,8);vfloat32m1_t acc_rows_15= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_0= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_1= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_2= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_3= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_4= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_5= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_6= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_7= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_8= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_9= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_10= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_11= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_12= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_13= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_14= __riscv_vfmv_v_f_f32m1(0.0,8);
+            vfloat32m1_t acc_rows_15= __riscv_vfmv_v_f_f32m1(0.0,8);
 
             for (int64_t b = 0; b < nb; b++) {
                 // Load the eight block_q4_0 quantized values interleaved with each other in chunks of eight - B0,B1 ....B6,B7
