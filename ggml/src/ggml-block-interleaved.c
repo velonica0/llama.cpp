@@ -546,26 +546,26 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
             case 0:
                 v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_0,8),vl);
                 v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_0, idvec_1,8),vl);
-                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_2,8),vl);
-                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_0, idvec_3,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_2_0, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_3_0, idvec_3,8),vl);
                 break;
             case 1:
                 v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_0,8),vl);
                 v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_1, idvec_1,8),vl);
-                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_2,8),vl);
-                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_1, idvec_3,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_2_1, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_3_1, idvec_3,8),vl);
                 break;
             case 2:
                 v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_0,8),vl);
                 v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_2, idvec_1,8),vl);
-                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_2,8),vl);
-                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_2, idvec_3,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_2_2, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_3_2, idvec_3,8),vl);
                 break;
             case 3:
                 v0 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_0,8),vl);
                 v1 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_1_3, idvec_1,8),vl);
-                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_2,8),vl);
-                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_0_3, idvec_3,8),vl);
+                v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_2_3, idvec_2,8),vl);
+                v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(srcv_3_3, idvec_3,8),vl);
                 break;
             
             default:
@@ -576,10 +576,10 @@ void quantize_q8_0_4x8(const float * restrict x, void * restrict vy, int64_t k) 
             // vint32m1_t v2 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC2J(j), idvec_2_v,8),vl);
             // vint32m1_t v3 = __riscv_vfcvt_x_f_v_i32m1(__riscv_vfmul_vv_f32m1(SRVC3J(j), idvec_3_v,8),vl);
 
-            vint8mf4_t v0_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v0,0,vl)),0,vl);
-            vint8mf4_t v1_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v1,0,vl)),0,vl);
-            vint8mf4_t v2_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v2,0,vl)),0,vl);
-            vint8mf4_t v3_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v3,0,vl)),0,vl);
+            vint8mf4_t v0_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v0,0,2,vl)),0,2,vl);
+            vint8mf4_t v1_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v1,0,2,vl)),0,2,vl);
+            vint8mf4_t v2_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v2,0,2,vl)),0,2,vl);
+            vint8mf4_t v3_i8 = __riscv_vnclip_wx_i8mf4((__riscv_vnclip_wx_i16mf2(v3,0,2,vl)),0,2,vl);
 
             __riscv_vse8_v_i8mf4(y[i].qs + 32 * j,v0_i8, vl);
             __riscv_vse8_v_i8mf4(y[i].qs + 32 * j + vl, v1_i8, vl);
@@ -1217,9 +1217,9 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
 
 
                 vfloat32m1_t col_scale_f32 = __riscv_vfwcvt_f_xu_v_f32m1(__riscv_vrgather_vv_u16mf2(__riscv_vle16_v_u16mf2(b_ptr[b].d,8),changemask,8),8);
-                vfloat32m1_t row_scale_f32 = __riscv_vfwcvt_f_f_v_f32m1( __riscv_vle16_v_f16mf2(a_ptr[b].d,vl/4),vl/4);
+                vfloat32m1_t row_scale_f32 = __riscv_vfwcvt_f_xu_v_f32m1( __riscv_vle16_v_u16mf2(a_ptr[b].d,vl/4),vl/4);
 
-               acc_row = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32),8),acc_row,8);
+               acc_row = __riscv_vfadd_vv_f32m1( __riscv_vfmul_vv_f32m1(__riscv_vfcvt_f_x_v_f32m1(iacc,8),__riscv_vfmul_vv_f32m1(col_scale_f32,row_scale_f32,8),8),acc_row,8);
             }
             // Accumulated output values permuted so as to be stored in appropriate order post accumulation
             acc_row = __riscv_vrgather_vv_f32m1(acc_row,finalpermutemask_,8);
