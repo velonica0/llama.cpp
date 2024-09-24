@@ -3050,17 +3050,14 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     //生成240的掩码
     vuint8m1_t idx = __riscv_vid_v_u8m1(32);  // 生成从0到31的索引向量
     //vuint8m1_t idx_mod8 = __riscv_vand_vx_u8m1(idx, 7, 32);  // 将索引对8取模，生成0到7的循环模式
-    vbool8_t mask_240 = __riscv_vmsgtu_vx_u8m1_b8(idx, 16, 32);  // 00000000111111110000000011111111
+    vbool8_t mask_240 = __riscv_vmsgtu_vx_u8m1_b8(idx, 16, 32);  // 00000000000000001111111111111111
 
     //生成204的掩码
-    vuint8mf4_t idx2 = __riscv_vid_v_u8mf4(8);  // 生成从0到31的索引向量
-    // vuint8mf4_t idx_mod4 = __riscv_vand_vx_u8mf4(idx2, 3, 8);  // 将索引对4取模，生成0到4的循环模式
-    // 使用 2 作为比较值生成掩码，比较索引小于 2 的部分
-    vbool32_t mask1 = __riscv_vmsltu_vx_u8mf4_b32(idx2, 2, 8);  // 比较索引值小于 2 的位置为 1
-    // 使用 6 作为比较值生成掩码，比较索引小于 6 的部分
-    vbool32_t mask2 = __riscv_vmsltu_vx_u8mf4_b32(idx2, 6, 8);  // 比较索引值小于 6 的位置为 
+    uint8_t index_204[8]={0,0,2,2,0,0,2,2};
+    vuint8mf4_t vindex_204 = __riscv_vle8_v_u8mf4(index_204,8);
+    vbool32_t mask_204 = __riscv_vmsgtu_vx_u8mf4_b32(vindex_204,1,8);
     // 使用逻辑操作生成 `00110011` 掩码，前两位和后两位为 1，中间为 0
-    vbool32_t mask_204 = __riscv_vmandn_mm_b32(mask2, mask1, 8);  // 对两部分进行逻辑与非操作
+    // vbool32_t mask_204 = __riscv_vmandn_mm_b32(mask2, mask1, 8);  // 对两部分进行逻辑与非操作
     // vbool32_t mask_204 = __riscv_vmsltu_vx_u8mf4_b32(idx_mod4, 2, 8);  // 生成小于2的掩码，即1100模式
 
     //生成136的掩码
@@ -3287,22 +3284,22 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
             //     //__riscv_vse32_v_f32m1((s + ((y * 4 + i) * bs + x * 8)), acc_rows[i], 8);
             //     _RVV_ACC_ROW_STORE_matrix(i);
             //  }
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 0) * bs + x * 8)), acc_rows_0, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 1) * bs + x * 8)), acc_rows_1, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 2) * bs + x * 8)), acc_rows_2, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 3) * bs + x * 8)), acc_rows_3, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 4) * bs + x * 8)), acc_rows_4, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 5) * bs + x * 8)), acc_rows_5, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 6) * bs + x * 8)), acc_rows_6, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 7) * bs + x * 8)), acc_rows_7, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 8) * bs + x * 8)), acc_rows_8, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 9) * bs + x * 8)), acc_rows_9, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 10) * bs + x * 8)), acc_rows_10, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 11) * bs + x * 8)), acc_rows_11, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 12) * bs + x * 8)), acc_rows_12, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 13) * bs + x * 8)), acc_rows_13, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 14) * bs + x * 8)), acc_rows_14, 8);
-            __riscv_vse32_v_f32m1((s + ((y * 4 + 15) * bs + x * 8)), acc_rows_15, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 0) * bs + x * 8)), acc_rows_0, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 1) * bs + x * 8)), acc_rows_1, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 2) * bs + x * 8)), acc_rows_2, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 3) * bs + x * 8)), acc_rows_3, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 4) * bs + x * 8)), acc_rows_4, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 5) * bs + x * 8)), acc_rows_5, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 6) * bs + x * 8)), acc_rows_6, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 7) * bs + x * 8)), acc_rows_7, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 8) * bs + x * 8)), acc_rows_8, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 9) * bs + x * 8)), acc_rows_9, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 10) * bs + x * 8)), acc_rows_10, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 11) * bs + x * 8)), acc_rows_11, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 12) * bs + x * 8)), acc_rows_12, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 13) * bs + x * 8)), acc_rows_13, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 14) * bs + x * 8)), acc_rows_14, 8);
+            __riscv_vse32_v_f32m1((float *)(s + ((y * 4 + 15) * bs + x * 8)), acc_rows_15, 8);
         }
     }
     // Take a block_q8_0x4 structures at each pass of the loop and perform dot product operation
