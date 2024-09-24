@@ -1135,7 +1135,7 @@ void ggml_gemv_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     vuint8m1_t idx = __riscv_vid_v_u8m1(8);
     vuint8m1_t idx_and_1 = __riscv_vand_vx_u8m1(idx, 7, 8);
     idx_and_1 = __riscv_vrgather_vv_u8m1(idx_and_1,expand_u8,32);
-    vbool8_t mask = __riscv_vmsltu_vx_u8m1_b8(idx_and_1, 4, 32);    //0101交错
+    vbool8_t mask = __riscv_vmsltu_vx_u8m1_b8(idx_and_1, 3, 32);    //0101交错
     vint8m1_t m4b = __riscv_vmv_v_x_i8m1(0x0F,32);
 
     int64_t b_nb = n / QK4_0;
@@ -3050,7 +3050,7 @@ void ggml_gemm_q4_0_8x8_q8_0(int n, float * restrict s, size_t bs, const void * 
     //生成240的掩码
     vuint8m1_t idx = __riscv_vid_v_u8m1(32);  // 生成从0到31的索引向量
     //vuint8m1_t idx_mod8 = __riscv_vand_vx_u8m1(idx, 7, 32);  // 将索引对8取模，生成0到7的循环模式
-    vbool8_t mask_240 = __riscv_vmsgtu_vx_u8m1_b8(idx, 16, 32);  // 00000000000000001111111111111111
+    vbool8_t mask_240 = __riscv_vmsgtu_vx_u8m1_b8(idx, 15, 32);  // 00000000000000001111111111111111
 
     //生成204的掩码
     uint8_t index_204[8]={0,0,2,2,0,0,2,2};
