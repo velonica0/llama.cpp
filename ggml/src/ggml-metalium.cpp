@@ -1,6 +1,7 @@
 #include "common/base_types.hpp"
 #include "common/bfloat16.hpp"
 #include "common/constants.hpp"
+#include "common/logger.hpp"
 #include "device/tt_arch_types.h"
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
@@ -1344,7 +1345,9 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     else if (source_is_quantized) {
         storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
     }
+    // TODO: Add support for integer data types. Google's Gemma models seems to use them extensively
     else {
+        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
         GGML_ASSERT(false && "Unsupported data type");
     }
 
@@ -1519,7 +1522,7 @@ ggml_backend_metalium_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
     return ggml_backend_buffer_init(buft, ggml_backend_metalium_buffer_interface, ctx, alloc_size);
 }
 
-bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
+static bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
     GGML_UNUSED(buft);
     // FIXME: Lie to GGML because Metalium can't handle all operations yet
     return true;
