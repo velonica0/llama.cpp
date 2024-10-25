@@ -1519,13 +1519,19 @@ ggml_backend_metalium_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
     return ggml_backend_buffer_init(buft, ggml_backend_metalium_buffer_interface, ctx, alloc_size);
 }
 
+bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
+    GGML_UNUSED(buft);
+    // FIXME: Lie to GGML because Metalium can't handle all operations yet
+    return true;
+}
+
 static ggml_backend_buffer_type_i ggml_backend_metalium_buffer_type_interface = {
     /* .get_name         = */ ggml_backend_metalium_buffer_type_name,
     /* .alloc_buffer     = */ ggml_backend_metalium_buffer_type_alloc_buffer,
     /* .get_alignment    = */ ggml_backend_metalium_buffer_type_get_alignment,
     /* .get_max_size     = */ ggml_backend_metalium_buffer_type_get_max_size,
     /* .get_alloc_size   = */ ggml_backend_metalium_buffer_type_get_alloc_size,
-    /* .is_host          = */ nullptr,
+    /* .is_host          = */ ggml_backend_metalium_buffer_type_is_host,
 };
 
 ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(int device) {
