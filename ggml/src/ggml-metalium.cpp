@@ -11,6 +11,7 @@
 
 #include "host_api.hpp"
 #include "impl/dispatch/command_queue.hpp"
+#include "ttnn/distributed/api.hpp"
 #include "ttnn/distributed/types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
@@ -114,6 +115,14 @@ static bool ggml_tt_tensors_shape_equal(const ggml_tensor* ggtensor, const tt::t
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         if(ggtensor->ne[GGML_MAX_DIMS - i - 1] != ttensor.shape()[i]) {
             return false;
+        }
+    }
+
+    if(ttensor.shape().size() > GGML_MAX_DIMS) {
+        for(size_t i = GGML_MAX_DIMS; i < ttensor.shape().size(); i++) {
+            if(ttensor.shape()[i] != 1) {
+                return false;
+            }
         }
     }
     return true;
@@ -1525,7 +1534,7 @@ ggml_backend_metalium_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
 static bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
     GGML_UNUSED(buft);
     // FIXME: Lie to GGML because Metalium can't handle all operations yet
-    return true;
+    return false;
 }
 
 static ggml_backend_buffer_type_i ggml_backend_metalium_buffer_type_interface = {
