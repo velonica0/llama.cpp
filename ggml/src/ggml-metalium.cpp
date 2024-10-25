@@ -1990,6 +1990,11 @@ static void ggml_backend_metalium_device_get_props(ggml_backend_dev_t dev, ggml_
     };
 }
 
+static ggml_backend_buffer_type_t ggml_backend_metalium_get_buffer_type(ggml_backend_dev_t dev) {
+    ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
+    return ggml_backend_metalium_buffer_type(ctx->device_id);
+}
+
 static const ggml_backend_device_i ggml_backend_metalium_device_interface = {
     /* .get_name                = */ ggml_backend_metalium_device_get_name,
     /* .get_description         = */ ggml_backend_metalium_device_get_description,
@@ -1997,7 +2002,7 @@ static const ggml_backend_device_i ggml_backend_metalium_device_interface = {
     /* .get_type                = */ ggml_backend_metalium_get_type,
     /* .get_props               = */ ggml_backend_metalium_device_get_props,
     /* .init_backend            = */ ggml_backend_metalium_device_init,
-    /* .get_buffer_type         = */ NULL,
+    /* .get_buffer_type         = */ ggml_backend_metalium_get_buffer_type,
     /* .get_host_buffer_type    = */ NULL,
     /* .buffer_from_host_ptr    = */ NULL,
     /* .supports_op             = */ ggml_backend_metalium_device_supports_op,
