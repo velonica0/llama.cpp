@@ -203,7 +203,10 @@ static bool numpy_broadcast_rule(const ggml_tensor* t, const ggml_tensor* q)
 static tt::tt_metal::DataType ggml2tt_type(ggml_type ggtype, tt::ARCH arch)
 {
     tt::tt_metal::DataType type = ggml2tt_type_internal(ggtype, arch);
-    GGML_ASSERT(type != tt::tt_metal::DataType::INVALID && "Unsupported data type");
+    if(type == tt::tt_metal::DataType::INVALID) {
+        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type: {}", ggml_type_name(ggtype));
+        GGML_ASSERT(false && "Unsupported data type");
+    }
     return type;
 
 }
@@ -1452,7 +1455,8 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
     }));
     tensor->extra = bufctx->metadata_to_free.back().get();
     // HACK: Make KV cache work
-    if(std::string_view(tensor->name).find("cache") != std::string::npos) {
+    std::string name(tensor->name);
+    if(name.find("cache") != std::string::npos && name.find_first_of("()") == std::string::npos) {
         TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
         std::vector<uint32_t> shape(tensor->ne, tensor->ne + GGML_MAX_DIMS);
         std::reverse(shape.begin(), shape.end());
