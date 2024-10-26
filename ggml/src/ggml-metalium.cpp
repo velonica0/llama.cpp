@@ -556,24 +556,21 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             ndiff += tensor->nb[i] != src0->nb[i];
         }
-        GGML_ASSERT(ndiff == 2);
 
         auto t = realize_ggml_view(src0);
         if(ndiff == 0) {
             return t;
         }
 
-        std::array<uint32_t, 2> swapaxis = {0, 1};
-        uint32_t count = 0;
-        for(uint32_t i=0;i<GGML_MAX_DIMS;i++) {
-            if(tensor->nb[i] != src0->nb[i]) {
-                swapaxis[count] = i;
-                count++;
-            }
-            GGML_ASSERT(count <= swapaxis.size());
+        std::array<int32_t, GGML_MAX_DIMS> permute;
+        memcpy(permute.data(), tensor->op_params, sizeof(int32_t) * GGML_MAX_DIMS);
+
+        std::vector<int64_t> permute_tt(GGML_MAX_DIMS);
+        for(int i=0;i<GGML_MAX_DIMS;i++) {
+            permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
 
-        auto res = ttnn::transpose(*t, swapaxis[0], swapaxis[1]);
+        auto res = ttnn::permute(*t, permute_tt, std::nullopt);
         return std::make_shared<tt::tt_metal::Tensor>(res);
     }
 
@@ -1810,7 +1807,7 @@ static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, 
         case GGML_OP_ADD1:
         case GGML_OP_SQRT:
         case GGML_OP_SQR:
-        // case GGML_OP_PERMUTE: // FIXME: Needs fix https://github.com/tenstorrent/tt-metal/issues/11650
+        case GGML_OP_PERMUTE: // FIXME: Needs fix https://github.com/tenstorrent/tt-metal/issues/11650
         case GGML_OP_LOG:
         // TTNN can really only do unpad() so the source rank must be greater than or equal to the destination rank
         // and must not be permuted as that's a sign of it being reshaped from another tensor. Which is costly due to
