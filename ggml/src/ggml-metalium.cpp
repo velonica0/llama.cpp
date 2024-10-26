@@ -155,7 +155,7 @@ static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH a
             tt::tt_metal::DataType::INVALID,
             tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_Q5_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::INVALID,      // Does work but causes issues in unit tests
+            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::BFLOAT8_B,      // Does work but causes issues in unit tests
             /*GGML_TYPE_Q8_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
             /*GGML_TYPE_Q8_1 = */ tt::tt_metal::DataType::BFLOAT8_B,
             /*GGML_TYPE_Q2_K = */ tt::tt_metal::DataType::INVALID,
@@ -706,10 +706,12 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
 static void ggml_backend_metalium_cpy(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst) {
     GGML_UNUSED(ctx);
     GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
     TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    ggml_tensor* src0 = dst->src[0];
 
     // TODO: Check we are not writing into a view
-    auto res = realize_ggml_view(dst->src[0]);
+    auto res = realize_ggml_view(src0);
     if(!ggml_tt_tensors_shape_equal(dst, *res)) {
         res = std::make_shared<tt::tt_metal::Tensor>(reshape_tt_tensor_into_ggml(*res, dst));
     }
