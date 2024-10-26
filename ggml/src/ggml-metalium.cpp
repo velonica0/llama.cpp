@@ -1238,6 +1238,32 @@ static void ggml_backend_metalium_log(ggml_backend_metalium_context * ctx, struc
     };
 }
 
+static void ggml_backend_metalium_arange(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    auto* device = dst_meta->bufctx->device;
+    std::array<float, 3> params;
+    memcpy(&params, dst->op_params, sizeof(params));
+    auto [start, end, step] = params;
+    auto dtype = ggml2tt_type(dst->type, device->arch());
+    if(dtype == tt::tt_metal::DataType::INVALID) {
+        tt::log_fatal(tt::LogType::LogAlways, "Unsupported GGML type {}", ggml_type_name(dst->type));
+        GGML_ASSERT(false && "Unsupported GGML type");
+    }
+
+    // TODO: Request TT to support arange directly on the device
+    auto tensor = ttnn::arange(start, end, step, dtype);
+    tensor = ttnn::tilize_with_zero_padding(tensor.to(device));
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(tensor)),
+        .ggtype = dst->type,
+        .bufctx = dst_meta->bufctx
+    };
+}
+
 // backend interface
 
 static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
@@ -1701,6 +1727,10 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
                 ggml_backend_metalium_log(ctx, node);
                 break;
 
+            case GGML_OP_ARANGE:
+                ggml_backend_metalium_arange(ctx, node);
+                break;
+
             case GGML_OP_NONE:
                 break;
 
@@ -1765,7 +1795,8 @@ static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, 
     if(!tensor_supported(op)) {
         return false;
     }
-    if(op->op == GGML_OP_NONE) {
+    // ARANGE and NONE are special case where src0 is not required
+    if(op->op == GGML_OP_NONE || op->op == GGML_OP_ARANGE) {
         return true;
     }
     if(!tensor_supported(src0)) {

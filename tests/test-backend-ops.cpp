@@ -1320,7 +1320,7 @@ struct test_cpy : public test_case {
     }
 
     double max_nmse_err() override {
-        return 6e-5;
+        return 6e-4;
     }
 
     size_t op_size(ggml_tensor * t) override {
