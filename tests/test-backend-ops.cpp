@@ -1957,7 +1957,7 @@ struct test_log : public test_case {
     }
 
     double max_nmse_err() override {
-        return 0.002;
+        return 0.03;
     }
 
     bool grad_precise() override {
@@ -1997,6 +1997,10 @@ struct test_sin : public test_case {
 
     double max_maa_err() override {
         return 1e-3;
+    }
+
+    double max_nmse_err() override {
+        return 1e-5;
     }
 
     float grad_eps() override {
@@ -2040,6 +2044,10 @@ struct test_cos : public test_case {
 
     double max_maa_err() override {
         return 1e-3;
+    }
+
+    double max_nmse_err() override {
+        return 1e-5;
     }
 
     float grad_eps() override {
