@@ -578,6 +578,11 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         return meta->tensor;
     }
 
+    // TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
+    // std::cerr << "meta = " << (void*)meta << std::endl;
+    // std::cerr << "meta->tensor = " << (void*)(meta->tensor.get()) << std::endl;
+    // std::cout << "tensor->name = " << tensor->name << std::endl;
+    // std::cout << "tensor->op = " << ggml_op_name(tensor->op) << std::endl;
     GGML_ASSERT(is_view(tensor));
     GGML_ASSERT(tensor->view_src != nullptr);
 
@@ -1123,6 +1128,13 @@ static bool ggml_backend_metalium_can_softmax(const struct ggml_tensor * dst)
     if(dst->src[1] != nullptr && arr[1] != 0.f) {
         return false;
     }
+    if(dst->src[1] != nullptr) {
+        // RWKV somehow has x [1, 1, 32, 32] and mask [1, 32, 2, 32]
+        // Don't know what's this about
+        // FIXME: This masks a problem in RWKV. Need proper fix
+        const ggml_tensor *src1 = dst->src[1];
+        return numpy_broadcast_rule(src1, dst);
+    }
     return true;
 }
 
@@ -1154,6 +1166,8 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
     if(src1 != nullptr) {
         auto mask = realize_ggml_view(src1);
         if(max_bias == 0.f) {
+            // std::cout << "x: " << x.shape() << " mask: " << mask->shape() << std::endl;
+            // std::cout << "x.dtype: " << (int)x.dtype() << " mask.dtype: " << (int)mask->dtype() << std::endl;
             x = ttnn::add(x, *mask);
         }
         else {
@@ -1481,7 +1495,7 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
     tensor->extra = bufctx->metadata_to_free.back().get();
     // HACK: Make KV cache work
     std::string name(tensor->name);
-    if(name.find("cache") != std::string::npos && name.find_first_of("()") == std::string::npos) {
+    if(name.find("cache") != std::string::npos && tensor->op == GGML_OP_NONE) {
         TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
         std::vector<uint32_t> shape(tensor->ne, tensor->ne + GGML_MAX_DIMS);
         std::reverse(shape.begin(), shape.end());
@@ -1563,6 +1577,7 @@ ggml_backend_metalium_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
 static bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
     GGML_UNUSED(buft);
     // FIXME: Lie to GGML because Metalium can't handle all operations yet
+    // return true;
     return false;
 }
 
@@ -1752,6 +1767,7 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
 }
 
 static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, const struct ggml_tensor * op) {
+    GGML_ASSERT(op != NULL);
     const struct ggml_tensor * src0 = op->src[0];
     const struct ggml_tensor * src1 = op->src[1];
     ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)device->context;
@@ -1791,7 +1807,6 @@ static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, 
     //     << "  type: " << ggml_type_name(op->type) << "\n"
     //     << "  view_src: " << op->view_src << "\n"
     //     << "\n";
-    GGML_ASSERT(op != NULL);
     if(!tensor_supported(op)) {
         return false;
     }
@@ -2110,6 +2125,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
                 g_device_map[device_id] = device;
             }
             GGML_ASSERT(device != nullptr);
+            // Limit device support to the ones I own
             GGML_ASSERT(device->arch() == tt::ARCH::GRAYSKULL || device->arch() == tt::ARCH::WORMHOLE_B0);
 
             dev_ctx->device = device;
