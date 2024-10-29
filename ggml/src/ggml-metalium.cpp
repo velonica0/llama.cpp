@@ -402,14 +402,14 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    if(tensor.shape()[-1] == (uint32_t)node->ne[0]) {
-        // Fast path. reshape_on_device() can reshape is both the last dimension is the same 
-        return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
-    }
     if(node->ne[0] % tt::constants::TILE_WIDTH == 0 && node->ne[1] % tt::constants::TILE_HEIGHT == 0 &&
         tensor.shape()[2] >= tt::constants::TILE_HEIGHT && tensor.shape()[3] >= tt::constants::TILE_WIDTH) {
         // Fast path. tensor.reshape() can reshape if both the last two dimensions are tile aligned
         return tensor.reshape(ttnn::SimpleShape(target_shape));
+    }
+    if(tensor.shape()[-1] == (uint32_t)node->ne[0]) {
+        // Fast path. reshape_on_device() can reshape is both the last dimension is the same 
+        return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
     }
 
     // SLOW path. Copy the tensor to the CPU, unpad it, reshape it, and tileize it back
