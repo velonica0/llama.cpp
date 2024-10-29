@@ -940,6 +940,10 @@ if(GGML_METALIUM)
     set(GGML_SOURCES_METALIUM ggml-metalium.cpp)
 
     list(APPEND GGML_CDEF_PUBLIC GGML_USE_METALIUM)
+
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsized-deallocation")
+    endif()
 endif()
 
 if (GGML_CPU_HBM)
@@ -1022,8 +1026,8 @@ function(get_flags CCID CCVER)
     set(CXX_FLAGS "")
 
     if (CCID MATCHES "Clang")
-        set(C_FLAGS   -Wunreachable-code-break -Wunreachable-code-return)
-        set(CXX_FLAGS -Wunreachable-code-break -Wunreachable-code-return -Wmissing-prototypes -Wextra-semi)
+        #set(C_FLAGS   -Wunreachable-code-break -Wunreachable-code-return)
+        #set(CXX_FLAGS -Wunreachable-code-break -Wunreachable-code-return -Wmissing-prototypes -Wextra-semi)
 
         if (
             (CCID STREQUAL "Clang"      AND CCVER VERSION_GREATER_EQUAL 3.8.0) OR
