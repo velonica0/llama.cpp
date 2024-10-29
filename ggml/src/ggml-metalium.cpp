@@ -220,8 +220,7 @@ static bool is_ggml_type_supported_by_metalium(ggml_type ggtype, tt::ARCH arch) 
 
 template <typename SrcType, typename DstType>
 tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
-    // Converts GGML types to TT types
-    // TODO: Support quantized data conversion
+    // Converts GGML floating point (FP32, FP16, BF16) to TT floating point (FP32, BF16)
     std::vector<DstType> vec(size);
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
@@ -251,7 +250,7 @@ tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
         }
     };
 
-    // special case for F32 and BF16 since no conversion is needed
+    // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
     if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_fp16_t> && std::is_same_v<Dst, bfloat16>)) {
         // Make GCC shut up about writing into a class like it's flat memory
         memcpy((void*)vec.data(), src, size * sizeof(Src));
@@ -261,7 +260,7 @@ tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
             dst_adaptor(vec[i], src_adaptor(src[i]));
         }
     }
-    auto owned = tt::tt_metal::owned_buffer::Buffer<DstType>(std::make_shared<std::vector<DstType>>(vec));
+    auto owned = tt::tt_metal::owned_buffer::Buffer<DstType>(std::make_shared<std::vector<DstType>>(std::move(vec)));
     return OwnedStorage(std::move(owned));
 }
 
@@ -269,6 +268,9 @@ template <typename DstType>
 tt::tt_metal::OwnedStorage ggml_quantized2owned_storage(const void* src, ggml_tensor* tensor) {
     const ggml_type_traits* trait = ggml_get_type_traits(tensor->type);
     GGML_ASSERT(trait->to_float != NULL);
+    // TODO: Currently we decompress the entire quantized data into float and then convert to bfloat16
+    // (So later on we can convert again to TT quantized types). We SHOULD be able to not decompress
+    // the entire quantized GGML tensor. Save on memory.
     std::vector<float> vec(ggml_nelements(tensor));
     trait->to_float(src, vec.data(), ggml_nelements(tensor));
 
@@ -278,7 +280,6 @@ tt::tt_metal::OwnedStorage ggml_quantized2owned_storage(const void* src, ggml_te
 template <typename SrcType>
 void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]] tt::tt_metal::CommandQueue& queue, ggml_type dst_ggtype) {
     // Converts TT tensors to GGML types
-    // TODO: Support reading quantized data
     ttnn::Shape shape = tensor.shape();
     ttnn::Shape padded_shape = tensor.shape().with_tile_padding();
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16>);
@@ -287,20 +288,23 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     GGML_ASSERT(row_major_tensor.storage_type() == StorageType::OWNED or row_major_tensor.storage_type() == StorageType::BORROWED);
     GGML_ASSERT(std::holds_alternative<OwnedStorage>(row_major_tensor.storage()) || std::holds_alternative<BorrowedStorage>(row_major_tensor.storage()));
 
-    std::span<SrcType> buf;
+    const SrcType* buf = nullptr;
+    size_t buf_size = 0;
     if(std::holds_alternative<OwnedStorage>(row_major_tensor.storage())) {
         const OwnedStorage& owned = std::get<OwnedStorage>(row_major_tensor.storage());
-        auto buffer = std::get<owned_buffer::Buffer<SrcType>>(owned.buffer);
-        buf = std::span<SrcType>(buffer.begin(), buffer.end());
+        auto& buffer = std::get<owned_buffer::Buffer<SrcType>>(owned.buffer);
+        buf = buffer.begin();
+        buf_size = buffer.size();
     }
     else if(std::holds_alternative<BorrowedStorage>(row_major_tensor.storage())) {
         const BorrowedStorage& borrowed = std::get<BorrowedStorage>(row_major_tensor.storage());
-        auto buffer = std::get<borrowed_buffer::Buffer<SrcType>>(borrowed.buffer);
-        buf = std::span<SrcType>(buffer.begin(), buffer.end());
+        auto& buffer = std::get<borrowed_buffer::Buffer<SrcType>>(borrowed.buffer);
+        buf = buffer.begin();
+        buf_size = buffer.size();
     } else {
         GGML_ASSERT(false && "Unsupported buffer type");
     }
-    GGML_ASSERT(buf.size() != 0);
+    GGML_ASSERT(buf != nullptr);
     // TODO: Measure the performance of the following code. This is much simpeer and does untiling on the device
     // But does not work for large tensors
     // row_major_tensor = ttnn::untilize(tensor);
@@ -360,13 +364,13 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
                 if(src_dst_same) {
                     // optimization: copy a chunk of memory at a time
                     const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2];
-                    memcpy((SrcType*)intermid + idx, buf.data() + src_idx, sizeof(SrcType) * shape[3]);
+                    memcpy((SrcType*)intermid + idx, buf + src_idx, sizeof(SrcType) * shape[3]);
                     idx += shape[3];
                 }
                 else {
                     for(size_t x = 0; x < shape[3]; x++) {
                         const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2] + x * stride[3];
-                        GGML_ASSERT(src_idx < buf.size());
+                        GGML_ASSERT(src_idx < buf_size);
                         float val = src_adaptor(buf[src_idx]);
                         ((float*)intermid)[idx] = val;
                         idx++;
@@ -1390,7 +1394,6 @@ ggml_backend_metalium_buffer_free_buffer(ggml_backend_buffer_t buffer) {
     delete ctx;
 }
 
-// void         (*GGML_CALL set_tensor)    (ggml_backend_buffer_t buffer,       struct ggml_tensor * tensor, const void * data, size_t offset, size_t size);
 static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer,
                                                 ggml_tensor *tensor,
                                                 const void *data, size_t offset,
@@ -1632,8 +1635,6 @@ ggml_backend_metalium_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
 
 static bool ggml_backend_metalium_buffer_type_is_host(ggml_backend_buffer_type_t buft) {
     GGML_UNUSED(buft);
-    // FIXME: Lie to GGML because Metalium can't handle all operations yet
-    // return true;
     return false;
 }
 
