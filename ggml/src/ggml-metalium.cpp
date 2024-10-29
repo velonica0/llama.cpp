@@ -14,6 +14,7 @@
 #include "ttnn/distributed/api.hpp"
 #include "ttnn/distributed/types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
+#include "ttnn/operations/data_movement/reshape_on_device/reshape.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/experimental/auto_format/auto_format.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -401,22 +402,31 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    if(node->ne[0] % tt::constants::TILE_WIDTH != 0 || node->ne[1] % tt::constants::TILE_HEIGHT != 0 ||
-        tensor.shape()[2] < tt::constants::TILE_HEIGHT || tensor.shape()[3] < tt::constants::TILE_WIDTH) {
-        // This path is SLOW. Reshape on a tilized tensor only works when the last two dimensions are tile aligned
-        ttnn::SimpleShape begin({0, 0, 0, 0});
-        ttnn::SimpleShape end({tensor.shape()[0], tensor.shape()[1], tensor.shape()[2], tensor.shape()[3]});
-
-        tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu().unpad(begin, end);
-        tt::tt_metal::Tensor reshaped = row_major_tensor.reshape(ttnn::SimpleShape(target_shape));
-        tt::tt_metal::Tensor ret = ttnn::tilize_with_zero_padding(reshaped.to(tensor.device()));
-        return ret;
+    if(tensor.shape()[-1] == (uint32_t)node->ne[0]) {
+        // Fast path. reshape_on_device() can reshape is both the last dimension is the same 
+        return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
     }
-    return tensor.reshape(ttnn::SimpleShape(target_shape));
+    if(node->ne[0] % tt::constants::TILE_WIDTH == 0 && node->ne[1] % tt::constants::TILE_HEIGHT == 0 &&
+        tensor.shape()[2] >= tt::constants::TILE_HEIGHT && tensor.shape()[3] >= tt::constants::TILE_WIDTH) {
+        // Fast path. tensor.reshape() can reshape if both the last two dimensions are tile aligned
+        return tensor.reshape(ttnn::SimpleShape(target_shape));
+    }
+
+    // SLOW path. Copy the tensor to the CPU, unpad it, reshape it, and tileize it back
+    ttnn::SimpleShape begin({0, 0, 0, 0});
+    ttnn::SimpleShape end({tensor.shape()[0], tensor.shape()[1], tensor.shape()[2], tensor.shape()[3]});
+
+    tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu().unpad(begin, end);
+    tt::tt_metal::Tensor reshaped = row_major_tensor.reshape(ttnn::SimpleShape(target_shape));
+    tt::tt_metal::Tensor ret = ttnn::tilize_with_zero_padding(reshaped.to(tensor.device()));
+    return ret;
+    
 }
 
 static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::Device* device, const struct ggml_tensor * node)
 {
+    GGML_ASSERT(tensor.layout() == tt::tt_metal::Layout::ROW_MAJOR);
+    GGML_ASSERT(tensor.storage_type() == tt::tt_metal::StorageType::OWNED || tensor.storage_type() == tt::tt_metal::StorageType::BORROWED);
     std::array<uint32_t, GGML_MAX_DIMS> target_shape;
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
