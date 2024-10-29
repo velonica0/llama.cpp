@@ -414,6 +414,17 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
     }
     return tensor.reshape(ttnn::SimpleShape(target_shape));
 }
+
+static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::Device* device, const struct ggml_tensor * node)
+{
+    std::array<uint32_t, GGML_MAX_DIMS> target_shape;
+    for(int i = 0; i < GGML_MAX_DIMS; i++) {
+        target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
+    }
+
+    return ttnn::tilize_with_zero_padding(tensor.reshape(ttnn::SimpleShape(target_shape)).to(device));
+}
+
 static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_tensor* tensor);
 static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view(const ggml_tensor* tensor)
 {
@@ -531,9 +542,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             auto dst_volume = ggml_nelements(tensor);
             ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + start[3]});
             auto t = parent->cpu().to(tt::tt_metal::Layout::ROW_MAJOR).unpad(start, end);
-            // TODO: I'm lazy and this copy is completely unnecessary. Only here because reshape_tt_tensor_into_ggml() needs a device tensor
-            t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
-            res = reshape_tt_tensor_into_ggml(t, tensor);
+            res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
         }
         // The fast path, this is what TTNN is designed for
         else if(dst_size[0] % tt::constants::TILE_WIDTH == 0 && dst_size[1] % tt::constants::TILE_HEIGHT == 0 &&
