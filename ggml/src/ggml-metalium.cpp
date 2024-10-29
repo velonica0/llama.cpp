@@ -567,7 +567,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         std::array<int32_t, GGML_MAX_DIMS> permute;
         memcpy(permute.data(), tensor->op_params, sizeof(int32_t) * GGML_MAX_DIMS);
 
-        std::vector<int64_t> permute_tt(GGML_MAX_DIMS);
+        std::array<int64_t, GGML_MAX_DIMS> permute_tt;
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
@@ -1921,7 +1921,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_ADD1:
         case GGML_OP_SQRT:
         case GGML_OP_SQR:
-        case GGML_OP_PERMUTE: // FIXME: Needs fix https://github.com/tenstorrent/tt-metal/issues/11650
+        case GGML_OP_PERMUTE:
         case GGML_OP_LOG:
         case GGML_OP_GROUP_NORM:
         // TTNN can really only do unpad() so the source rank must be greater than or equal to the destination rank
