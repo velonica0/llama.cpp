@@ -1409,7 +1409,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         shape[i] = tensor->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    tt::tt_metal::Tensor t(std::move(storage), shape
+    tt::tt_metal::Tensor t(std::move(storage), ttnn::Shape(shape)
         , tt::tt_metal::DataType::BFLOAT16, tt::tt_metal::Layout::ROW_MAJOR);
 
     // I think we can allow this.. right?
@@ -1766,7 +1766,25 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
     GGML_UNUSED(backend);
 }
 
+static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t device, const struct ggml_tensor * op);
+
 static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, const struct ggml_tensor * op) {
+    bool ok = ggml_backend_metalium_device_supports_op_internal(device, op);
+    // debug print to log rejected ops
+    // if(!ok) {
+    //     fprintf(stderr, "REJECT op %s\n", ggml_op_desc(op));
+    //     if(op->src[0]) {
+    //         fprintf(stderr, "  src0 shape %ld %ld %ld %ld\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3]);
+    //     }
+    //     if(op->src[1]) {
+    //         fprintf(stderr, "  src1 shape %ld %ld %ld %ld\n", op->src[1]->ne[0], op->src[1]->ne[1], op->src[1]->ne[2], op->src[1]->ne[3]);
+    //     }
+    // }
+    return ok;
+}
+
+
+static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t device, const struct ggml_tensor * op) {
     GGML_ASSERT(op != NULL);
     const struct ggml_tensor * src0 = op->src[0];
     const struct ggml_tensor * src1 = op->src[1];
