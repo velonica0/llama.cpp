@@ -16,6 +16,7 @@
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/experimental/auto_format/auto_format.hpp"
+#include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
@@ -53,6 +54,7 @@
 #include <memory>
 #include <type_traits>
 #include <variant>
+#include <vector>
 
 struct ggml_backend_metalium_context {
     ttnn::device::Device* device = nullptr;
@@ -1278,6 +1280,41 @@ static void ggml_backend_metalium_arange(ggml_backend_metalium_context * ctx, st
     };
 }
 
+static void ggml_backend_metalium_group_norm(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    int n_groups;
+    float eps;
+    memcpy(&n_groups, dst->op_params, sizeof(n_groups));
+    memcpy(&eps, dst->op_params + sizeof(n_groups), sizeof(eps));
+
+    // XXX: Moreh's operators needs some cleanup
+    auto tensor = realize_ggml_view(dst->src[0]);
+    auto res = ttnn::moreh_group_norm(
+        *tensor,
+        n_groups,
+        eps,
+        std::nullopt,
+        std::nullopt,
+        std::vector<bool>{true, false, false},
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::nullopt);
+    GGML_ASSERT(res[0].has_value());
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(*res[0]),
+        .ggtype = dst->type,
+        .bufctx = dst_meta->bufctx
+    };
+}
+
 // backend interface
 
 static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
@@ -1745,6 +1782,10 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_ARANGE:
                 ggml_backend_metalium_arange(ctx, node);
                 break;
+            
+            case GGML_OP_GROUP_NORM:
+                ggml_backend_metalium_group_norm(ctx, node);
+                break;
 
             case GGML_OP_NONE:
                 break;
@@ -1873,6 +1914,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_SQR:
         case GGML_OP_PERMUTE: // FIXME: Needs fix https://github.com/tenstorrent/tt-metal/issues/11650
         case GGML_OP_LOG:
+        case GGML_OP_GROUP_NORM:
         // TTNN can really only do unpad() so the source rank must be greater than or equal to the destination rank
         // and must not be permuted as that's a sign of it being reshaped from another tensor. Which is costly due to
         // TTNN not using row-major layout.

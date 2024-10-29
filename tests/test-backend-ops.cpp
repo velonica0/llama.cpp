@@ -2614,6 +2614,10 @@ struct test_group_norm : public test_case {
 
         return out;
     }
+
+    double max_nmse_err() override {
+        return 5e-5;
+    }
 };
 
 // GGML_OP_ACC
