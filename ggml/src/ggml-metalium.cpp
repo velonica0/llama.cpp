@@ -1799,7 +1799,10 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
         GGML_ASSERT(meta != NULL);
         GGML_ASSERT(meta->tensor != NULL);
         GGML_ASSERT(meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE || meta->tensor->storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
-        GGML_ASSERT(ggml_tt_tensors_shape_equal(node, *meta->tensor));
+        if(!ggml_tt_tensors_shape_equal(node, *meta->tensor)) {
+            tt::log_fatal(tt::LogType::LogAlways, "Mismatched tensor shapes for node '{}': GGML wants [{}, {}, {}, {}], TTNN generates {}\n", node->name, node->ne[0], node->ne[1], node->ne[2], node->ne[3], meta->tensor->shape());
+            abort();
+        }
     }
 
     return GGML_STATUS_SUCCESS;
@@ -1815,10 +1818,10 @@ static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, 
     // if(!ok) {
     //     fprintf(stderr, "REJECT op %s\n", ggml_op_desc(op));
     //     if(op->src[0]) {
-    //         fprintf(stderr, "  src0 shape %ld %ld %ld %ld\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3]);
+    //         fprintf(stderr, "  src0 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3], ggml_type_name(op->src[0]->type));
     //     }
     //     if(op->src[1]) {
-    //         fprintf(stderr, "  src1 shape %ld %ld %ld %ld\n", op->src[1]->ne[0], op->src[1]->ne[1], op->src[1]->ne[2], op->src[1]->ne[3]);
+    //         fprintf(stderr, "  src1 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[1]->ne[0], op->src[1]->ne[1], op->src[1]->ne[2], op->src[1]->ne[3], ggml_type_name(op->src[1]->type));
     //     }
     // }
     return ok;
@@ -1837,6 +1840,12 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         if(tensor == NULL || !is_ggml_type_supported_by_metalium(tensor->type, ctx->device->arch())) {
             return false;
         }
+        // FIXME: Tiny LLaMA generates a [256, 1] tensor during inference. Current rules blocks such tensors from
+        //       being executed on TTNN. But TTNN actually just doesn't support tilizing into a tensor where the
+        //       last dimension is not aligned. Uncomment this if() and Tiny LLaMA will run (+ the softmax stuff).
+        // if(tensor->op != GGML_OP_NONE) {
+        //     return true;
+        // }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
 
         tt::tt_metal::DataType tt_type = ggml2tt_type(tensor->type, ctx->device->arch());
@@ -1941,6 +1950,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
+        // FIXME: The softmax code is a bit buggy - generates the wron shape when running Tiny LLaMA.
+        // needs to be fixed
         case GGML_OP_SOFT_MAX:
             return ggml_backend_metalium_can_softmax(op);
         default:
