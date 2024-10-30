@@ -401,6 +401,10 @@ static bool is_view(const ggml_tensor* tensor)
 
 static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, const struct ggml_tensor * node)
 {
+    if(ggml_tt_tensors_shape_equal(node, tensor)) {
+        return tensor;
+    }
+
     std::array<uint32_t, GGML_MAX_DIMS> target_shape;
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
