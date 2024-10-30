@@ -30,6 +30,7 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <string_view>
 #include <ttnn/core.hpp>
 #include <ttnn/device.hpp>
 #include <ttnn/operations/eltwise/binary/binary.hpp>
@@ -130,6 +131,33 @@ static bool ggml_tt_tensors_shape_equal(const ggml_tensor* ggtensor, const tt::t
     }
     return true;
 }
+
+// Debug flags that can be enabled at runtime. Because recompiling the backend takes forever
+// this enables faster iteration on debugging
+struct ggml_backend_metalium_debug_flags {
+    bool llama_hacks = false;               // Hacks needed to get Tiny LLaMA to work
+    bool print_rejected_ops = false;        // Print ops that the backend rejects
+};
+
+static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
+    auto func = [](const char* env) -> bool {
+        const char* val = std::getenv(env);
+        if(val != nullptr) {
+            std::string str(val);
+            std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+            if(str != "0" && str != "false" && str != "no" && str != "off") {
+                return true;
+            }
+        }
+        return false;
+    };
+
+    return ggml_backend_metalium_debug_flags {
+        .llama_hacks = func("GGML_METALIUM_LLAMA_HACKS"),
+        .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
+    };
+}();
+
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 // Backend internal state tracking because GGML API does not allow
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1839,15 +1867,15 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
 static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, const struct ggml_tensor * op) {
     bool ok = ggml_backend_metalium_device_supports_op_internal(device, op);
     // debug print to log rejected ops
-    // if(!ok) {
-    //     fprintf(stderr, "REJECT op %s\n", ggml_op_desc(op));
-    //     if(op->src[0]) {
-    //         fprintf(stderr, "  src0 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3], ggml_type_name(op->src[0]->type));
-    //     }
-    //     if(op->src[1]) {
-    //         fprintf(stderr, "  src1 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[1]->ne[0], op->src[1]->ne[1], op->src[1]->ne[2], op->src[1]->ne[3], ggml_type_name(op->src[1]->type));
-    //     }
-    // }
+    if(!ok && g_debug_flags.print_rejected_ops) {
+        fprintf(stderr, "REJECT op %s\n", ggml_op_desc(op));
+        if(op->src[0]) {
+            fprintf(stderr, "  src0 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3], ggml_type_name(op->src[0]->type));
+        }
+        if(op->src[1]) {
+            fprintf(stderr, "  src1 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[1]->ne[0], op->src[1]->ne[1], op->src[1]->ne[2], op->src[1]->ne[3], ggml_type_name(op->src[1]->type));
+        }
+    }
     return ok;
 }
 
@@ -1867,9 +1895,9 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // FIXME: Tiny LLaMA generates a [256, 1] tensor during inference. Current rules blocks such tensors from
         //       being executed on TTNN. But TTNN actually just doesn't support tilizing into a tensor where the
         //       last dimension is not aligned. Uncomment this if() and Tiny LLaMA will run (+ the softmax stuff).
-        // if(tensor->op != GGML_OP_NONE) {
-        //     return true;
-        // }
+        if(tensor->op != GGML_OP_NONE && g_debug_flags.llama_hacks) {
+            return true;
+        }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
 
         tt::tt_metal::DataType tt_type = ggml2tt_type(tensor->type, ctx->device->arch());
@@ -1977,7 +2005,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // FIXME: The softmax code is a bit buggy - generates the wron shape when running Tiny LLaMA.
         // needs to be fixed
         case GGML_OP_SOFT_MAX:
-            return ggml_backend_metalium_can_softmax(op);
+            return ggml_backend_metalium_can_softmax(op)  && !g_debug_flags.llama_hacks;
         default:
             return false;
     }
