@@ -77,25 +77,6 @@ struct ggml_backend_metalium_reg_context {
 
 struct TensorWithMetadata;
 
-static std::string dump_tt_tensor(const tt::tt_metal::Tensor& tensor)
-{
-    std::stringstream ss;
-    auto tmp = ttnn::untilize(tensor);
-    std::vector<bfloat16> vec(tmp.get_padded_shape().volume());
-    memcpy(vec.data(), tmp);
-    for(size_t i = 0; i < vec.size(); i++) {
-        if(i % 32 == 0) {
-            ss << std::endl;
-        }
-        if(i % 1024 == 0) {
-            ss << std::endl;
-        }
-        ss << vec[i].to_float() << " ";
-    }
-    ss << std::endl;
-    return ss.str();
-}
-
 struct ggml_backend_metalium_buffer_context {
 
     size_t ggml_buffer_size_bytes = 0;
@@ -133,10 +114,13 @@ static bool ggml_tt_tensors_shape_equal(const ggml_tensor* ggtensor, const tt::t
 }
 
 // Debug flags that can be enabled at runtime. Because recompiling the backend takes forever
-// this enables faster iteration on debugging
+// this enables faster iteration on debugging. Eventually these should be removed
+// NOTE: DO NOT invent more _hack flags. Else it devolves into a mess like what BUDA did
+// TODO: Get rid of llama_hacks ASAP
 struct ggml_backend_metalium_debug_flags {
     bool llama_hacks = false;               // Hacks needed to get Tiny LLaMA to work
     bool print_rejected_ops = false;        // Print ops that the backend rejects
+    bool print_view = false;            // Print details when a VIEW op is being realized
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -155,6 +139,7 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
     return ggml_backend_metalium_debug_flags {
         .llama_hacks = func("GGML_METALIUM_LLAMA_HACKS"),
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
+        .print_view = func("GGML_METALIUM_PRINT_VIEW"),
     };
 }();
 
@@ -550,33 +535,34 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         std::reverse(end.begin(), end.end());
         tt::tt_metal::Tensor res;
 
-        // Debug prints to help debug complicated view operations
-#if 0
-        std::cout << "\nrealize_ggml_view() OP: " << ggml_op_desc(tensor) << std::endl;
-        std::cout << "  dst shape: " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << std::endl;
-        std::cout << "  dst stride: " << tensor->nb[0] << " " << tensor->nb[1] << " " << tensor->nb[2] << " " << tensor->nb[3] << std::endl;
-        std::cout << "  dst extra: " << tensor->extra << std::endl;
-        if(tensor->extra != nullptr) {
-            TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
-            std::cout << "  dst tensor: " << meta->tensor << std::endl;
-            if(meta->tensor != nullptr) {
-                std::cout << "  dst tensor shape: " << meta->tensor->shape() << std::endl;
+        if(g_debug_flags.print_view) {
+            // Debug prints to help debug complicated view operations
+            std::cout << "\nrealize_ggml_view() OP: " << ggml_op_desc(tensor) << std::endl;
+            std::cout << "  dst name: " << tensor->name << std::endl;
+            std::cout << "  dst shape: " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << std::endl;
+            std::cout << "  dst stride: " << tensor->nb[0] << " " << tensor->nb[1] << " " << tensor->nb[2] << " " << tensor->nb[3] << std::endl;
+            std::cout << "  dst extra: " << tensor->extra << std::endl;
+            if(tensor->extra != nullptr) {
+                TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
+                std::cout << "  dst tensor: " << meta->tensor << std::endl;
+                if(meta->tensor != nullptr) {
+                    std::cout << "  dst tensor shape: " << meta->tensor->shape() << std::endl;
+                }
             }
+            std::cout << "  dst data: " << tensor->data << std::endl;
+            std::cout << "  dst view_src: " << tensor->view_src << std::endl;
+            std::cout << "  dst view_src shape: " << tensor->view_src->ne[0] << " " << tensor->view_src->ne[1] << " " << tensor->view_src->ne[2] << " " << tensor->view_src->ne[3] << std::endl;
+            std::cout << "  dst view_src stride: " << tensor->view_src->nb[0] << " " << tensor->view_src->nb[1] << " " << tensor->view_src->nb[2] << " " << tensor->view_src->nb[3] << std::endl;
+            std::cout << "  dst src0: " << src0 << std::endl;
+            std::cout << "  dst src1: " << tensor->src[1] << std::endl;
+            std::cout << "  src0 shape: " << src0->ne[0] << " " << src0->ne[1] << " " << src0->ne[2] << " " << src0->ne[3] << std::endl;
+            std::cout << "  src0 stride: " << src0->nb[0] << " " << src0->nb[1] << " " << src0->nb[2] << " " << src0->nb[3] << std::endl;
+            std::cout << "  src0 OP: " << ggml_op_desc(src0) << std::endl;
+            std::cout << "  TT parent shape: " << parent->shape() << std::endl;
+            std::cout << "  TT slice start: " << start[0] << " " << start[1] << " " << start[2] << " " << start[3] << std::endl;
+            std::cout << "  TT slice end: " << end[0] << " " << end[1] << " " << end[2] << " " << end[3] << std::endl;
         }
-        std::cout << "  dst data: " << tensor->data << std::endl;
-        std::cout << "  dst view_src: " << tensor->view_src << std::endl;
-        std::cout << "  dst view_src shape: " << tensor->view_src->ne[0] << " " << tensor->view_src->ne[1] << " " << tensor->view_src->ne[2] << " " << tensor->view_src->ne[3] << std::endl;
-        std::cout << "  dst view_src stride: " << tensor->view_src->nb[0] << " " << tensor->view_src->nb[1] << " " << tensor->view_src->nb[2] << " " << tensor->view_src->nb[3] << std::endl;
-        std::cout << "  dst src0: " << src0 << std::endl;
-        std::cout << "  dst src1: " << tensor->src[1] << std::endl;
-        std::cout << "  src0 shape: " << src0->ne[0] << " " << src0->ne[1] << " " << src0->ne[2] << " " << src0->ne[3] << std::endl;
-        std::cout << "  src0 stride: " << src0->nb[0] << " " << src0->nb[1] << " " << src0->nb[2] << " " << src0->nb[3] << std::endl;
-        std::cout << "  src0 OP: " << ggml_op_desc(src0) << std::endl;
-        std::cout << "TT parent shape: " << parent->shape() << std::endl;
-        std::cout << "TT slice start: " << start[0] << " " << start[1] << " " << start[2] << " " << start[3] << std::endl;
-        std::cout << "TT slice end: " << end[0] << " " << end[1] << " " << end[2] << " " << end[3] << std::endl;
-#endif
-        // The following if statements are handlers for special cases
+
         // Actually a reshape written as a slice
         if(offset == 0 && ggml_nelements(src0) == ggml_nelements(tensor)) {
             res = reshape_tt_tensor_into_ggml(*parent, tensor);
@@ -836,7 +822,7 @@ static bool ggml_backend_metalium_activations(ggml_backend_metalium_context * ct
             break;
         case GGML_UNARY_OP_STEP:
             // TODO: Make sure the resulting data type matches the input
-            ret = ttnn::experimental::typecast(ttnn::gtz(*src_tensor), ggml2tt_type(dst->type, tt::ARCH::GRAYSKULL));
+            ret = ttnn::experimental::typecast(ttnn::gtz(*src_tensor), ggml2tt_type(dst->type, src_tensor->device()->arch()));
             break;
         case GGML_UNARY_OP_EXP:
             ret = ttnn::exp(*src_tensor);
