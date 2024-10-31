@@ -14,6 +14,7 @@
 #include <random>
 #include <vector>
 #include <iostream>
+#include <algorithm>
 
 #if !defined (GGML_USE_METALIUM)
     #error "This file should only be compiled with Metalium backend enabled"
@@ -521,17 +522,23 @@ int main()
     //     return ggml_cpy(ctx, view, b);
     // }, "partial write via view"));
     // TODO: Expend this to attempt all permutations possible
-    for(int dim=0;dim<GGML_MAX_DIMS;dim++) {
-        tests.push_back(make_test([dim](ggml_context* ctx) {
-            ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 16, 32, 8, 4);
-            std::array<int, GGML_MAX_DIMS> axis;
-            for(int i = 0;i<GGML_MAX_DIMS;i++) {
-                axis[i] = i;
-            }
-            std::swap(axis[dim], axis[dim+1]);
-            return ggml_permute(ctx, a, 0, 1, 3, 2);
-        }, "Permute of axis " + std::to_string(dim) + " and N+1"));
+
+    std::array<int, GGML_MAX_DIMS> permute_order;
+    for(int i = 0;i<GGML_MAX_DIMS;i++) {
+        permute_order[i] = i;
     }
+    do {
+        std::string name = "Permutation, order=[";
+        for(int i = 0;i<GGML_MAX_DIMS;i++) {
+            name += std::to_string(permute_order[i]) + " ";
+        }
+        name.pop_back();
+        name += "]";
+        tests.push_back(make_test([permute_order](ggml_context* ctx) {
+            ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 16, 32, 8, 4);
+            return ggml_permute(ctx, a, permute_order[0], permute_order[1], permute_order[2], permute_order[3]);
+        }, name));
+    } while(std::next_permutation(permute_order.begin(), permute_order.end()));
 
     // (Basics of) what we need to get KV cache working
     // TODO: Map GGML operations into TTNN nlp_kv_cache_load_slice and update_cache_multi_core
