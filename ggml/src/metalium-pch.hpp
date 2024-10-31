@@ -39,6 +39,7 @@
 #include <ttnn/operations/data_movement/transpose/transpose.hpp>
 #include <ttnn/operations/data_movement/permute/permute.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
+#include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/eltwise/unary/unary.hpp>
 #include <ttnn/operations/eltwise/unary/unary_composite.hpp>
 #include <ttnn/operations/experimental/copy/typecast/typecast.hpp>

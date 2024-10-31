@@ -47,6 +47,7 @@
 #include <ttnn/operations/eltwise/unary/unary_composite.hpp>
 #include <ttnn/operations/data_movement/transpose/transpose.hpp>
 #include <ttnn/operations/data_movement/permute/permute.hpp>
+#include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
 #include <ttnn/operations/experimental/copy/typecast/typecast.hpp>
 #include <tt_metal/detail/persistent_kernel_cache.hpp>
@@ -1356,6 +1357,56 @@ static void ggml_backend_metalium_group_norm(ggml_backend_metalium_context * ctx
     };
 }
 
+static bool ggml_backend_metalium_can_repeat(const struct ggml_tensor * dst)
+{
+    ggml_tensor *src0 = dst->src[0];
+    for(int i = 0; i < GGML_MAX_DIMS; i++) {
+        if(dst->ne[i] % src0->ne[i] != 0) {
+            return false;
+        }
+
+        // FIXME: TTNN has trouble repeating if the first 2 dimensions are not the same
+        if(i < 2 && dst->ne[i] / src0->ne[i] != 1) {
+            return false;
+        }
+    }
+    return true;
+}
+
+static void ggml_backend_metalium_repeat(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    ggml_tensor* src0 = dst->src[0];
+
+    auto tensor = realize_ggml_view(dst->src[0]);
+    std::array<uint32_t, GGML_MAX_DIMS> repeats;
+    int ndiff = 0;
+    for(int i = 0; i < GGML_MAX_DIMS; i++) {
+        auto repeat = dst->ne[i] / src0->ne[i];
+        repeats[GGML_MAX_DIMS - i - 1] = repeat;
+        ndiff += (repeat != 1);
+    }
+    if(ndiff == 0) {
+        *dst_meta = {
+            .tensor = std::make_shared<tt::tt_metal::Tensor>(*tensor),
+            .ggtype = dst->type,
+            .bufctx = ((TensorWithMetadata*)src0->extra)->bufctx
+        };
+        return;
+    }
+
+    auto res = ttnn::repeat(*tensor, repeats);
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
+        .ggtype = dst->type,
+        .bufctx = ((TensorWithMetadata*)src0->extra)->bufctx
+    };
+}
+
 // backend interface
 
 static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
@@ -1824,6 +1875,10 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_GROUP_NORM:
                 ggml_backend_metalium_group_norm(ctx, node);
                 break;
+            
+            case GGML_OP_REPEAT:
+                ggml_backend_metalium_repeat(ctx, node);
+                break;
 
             case GGML_OP_NONE:
                 break;
@@ -1992,6 +2047,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // needs to be fixed
         case GGML_OP_SOFT_MAX:
             return ggml_backend_metalium_can_softmax(op)  && !g_debug_flags.llama_hacks;
+        case GGML_OP_REPEAT:
+            return ggml_backend_metalium_can_repeat(op);
         default:
             return false;
     }
