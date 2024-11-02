@@ -1452,11 +1452,6 @@ static size_t ggml_backend_metalium_buffer_type_get_alloc_size(ggml_backend_buff
     GGML_UNUSED(buft);
 }
 
-static const char * ggml_backend_metalium_buffer_get_name(ggml_backend_buffer_t buffer) {
-    ggml_backend_metalium_buffer_context * ctx = (ggml_backend_metalium_buffer_context *)buffer->context;
-    return ctx->name.c_str();
-}
-
 static void
 ggml_backend_metalium_buffer_free_buffer(ggml_backend_buffer_t buffer) {
     ggml_backend_metalium_buffer_context * ctx = ( ggml_backend_metalium_buffer_context *)buffer->context;
@@ -1668,7 +1663,6 @@ ggml_backend_metalium_buffer_cpy_tensor(ggml_backend_buffer_t buffer,
 }
 
 static struct ggml_backend_buffer_i ggml_backend_metalium_buffer_interface = {
-    /* .get_name        = */ ggml_backend_metalium_buffer_get_name,
     /* .free_buffer     = */ ggml_backend_metalium_buffer_free_buffer,
     /* .get_base        = */ ggml_backend_metalium_buffer_get_base,
     /* .init_tensor     = */ ggml_backend_metalium_buffer_init_tensor,
@@ -1744,11 +1738,6 @@ ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(int device) {
         /* .context  = */ bufctx_ptr,
     };
     return &buffer_type_map[device];
-}
-
-static ggml_backend_buffer_type_t ggml_backend_metalium_get_default_buffer_type(ggml_backend_t backend) {
-    auto* ctx = (ggml_backend_metalium_context *)backend->context;
-    return ggml_backend_metalium_buffer_type(ctx->device_id);
 }
 
 static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backend, struct ggml_cgraph * cgraph) {
@@ -2072,7 +2061,6 @@ static void ggml_backend_metalium_synchronize(ggml_backend_t backend)
 static struct ggml_backend_i metalium_backend_i = {
     /* .get_name                = */ ggml_backend_metalium_name,
     /* .free                    = */ ggml_backend_metalium_free,
-    /* .get_default_buffer_type = */ ggml_backend_metalium_get_default_buffer_type,
     /* .set_tensor_async        = */ NULL,
     /* .get_tensor_async        = */ NULL,
     /* .cpy_tensor_async        = */ NULL,
@@ -2082,9 +2070,6 @@ static struct ggml_backend_i metalium_backend_i = {
     /* .graph_plan_update       = */ NULL,
     /* .graph_plan_compute      = */ NULL,
     /* .graph_compute           = */ ggml_backend_metalium_graph_compute,
-    /* .supports_op             = */ NULL, // moved to device API
-    /* .supports_buft           = */ NULL, // moved to device API
-    /* .offload_op              = */ NULL,
     /* .event_record            = */ NULL,
     /* .event_wait              = */ NULL
 };
