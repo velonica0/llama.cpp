@@ -432,7 +432,9 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         // Fast path. tensor.reshape() can reshape if both the last two dimensions are tile aligned
         return tensor.reshape(ttnn::SimpleShape(target_shape));
     }
-    if(tensor.shape()[-1] == (uint32_t)node->ne[0]) {
+    // TODO: Remove these checks. see https://github.com/tenstorrent/tt-metal/issues/14922
+    //                                               vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+    if(tensor.shape()[-1] == (uint32_t)node->ne[0] && tensor.shape()[-2] % 32 == 0 && node->ne[2] % 32 == 0) {
         // Fast path. reshape_on_device() can reshape is both the last dimension is the same 
         return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
     }
