@@ -15,6 +15,7 @@
 #include "ttnn/distributed/types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/data_movement/reshape_on_device/reshape.hpp"
+#include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/experimental/auto_format/auto_format.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -1217,26 +1218,23 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             x = ttnn::add(x, *mask);
         }
         else {
-            // This path is not used due to accuracy issues and bug in TTNN.
+            // This path is not used due to bugs
             // TODO: Revive it later
-            const uint32_t n_head = t->shape()[1];
-            const uint32_t n_head_log2 = 1u << (uint32_t) std::ceil(std::log2(n_head));
+            const uint32_t n_head = t->shape()[3];
+            const uint32_t n_head_log2 = 1u << (uint32_t) std::floor(std::log2(n_head));
             const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
-            // const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
+            const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
             auto make_tile = [](const tt::tt_metal::Tensor& t, tt::tt_metal::Device* dev) {
                 return ttnn::tilize_with_zero_padding(t.to(dev));
             };
 
             // const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2*(h - n_head_log2) + 1) : 1.0f;
             auto *dev = t->device();
-            auto slope = make_tile(ttnn::arange(1, n_head+1, 1), dev);
-            auto lim = make_tile(ttnn::full(slope.shape(), (float)n_head_log2, tt::tt_metal::DataType::BFLOAT16), dev);
-            // BUG: Results in the wrong shape
-            // slope = tt::tt_metal::max(slope, lim);
-            slope = ttnn::rpow(ttnn::add(slope, 1.f), m0);
+            auto idxs = make_tile(ttnn::arange(0, n_head, 1), dev);
+            auto slope = ttnn::where(ttnn::lt(idxs, (float)n_head_log2), ttnn::rpow(ttnn::add(idxs, 1.f), m0)
+                , ttnn::rpow(ttnn::add(ttnn::multiply(ttnn::subtract(idxs, (float)n_head_log2), 2.f), 1.f), m1));
 
-            // FIXME: Multiply is running into invalid broadcast (GGML is lexer then TTNN)
-            x = ttnn::add(x, ttnn::multiply(*mask, slope));
+            x = ttnn::add(x, ttnn::multiply(*mask, bias ));
         }
     }
     x = ttnn::operations::normalization::softmax(x, tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG, std::nullopt, true);
@@ -1712,7 +1710,7 @@ static ggml_backend_buffer_type_i ggml_backend_metalium_buffer_type_interface = 
     /* .is_host          = */ ggml_backend_metalium_buffer_type_is_host,
 };
 
-ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(ggml_backend_dev_t dev, ggml_backend_metalium_device_context* dev_ctx) {
+static ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(ggml_backend_dev_t dev, ggml_backend_metalium_device_context* dev_ctx) {
     auto device = dev_ctx->device_id;
     GGML_ASSERT((size_t)device < tt::tt_metal::GetNumAvailableDevices());
     static std::map<int, ggml_backend_buffer_type> buffer_type_map;
