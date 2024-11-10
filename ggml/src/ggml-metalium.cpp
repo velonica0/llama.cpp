@@ -1220,7 +1220,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
         else {
             // This path is not used due to bugs
             // TODO: Revive it later
-            const uint32_t n_head = t->shape()[3];
+            const uint32_t n_head = t->shape()[1];
             const uint32_t n_head_log2 = 1u << (uint32_t) std::floor(std::log2(n_head));
             const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
             const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
@@ -1230,6 +1230,8 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
 
             // const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2*(h - n_head_log2) + 1) : 1.0f;
             auto *dev = t->device();
+            // BUG here. Generating wrong shaped tensor
+            // This is a part of the limitation of TTNN can't have odd numbers of elements in the last dimension
             auto idxs = make_tile(ttnn::arange(0, n_head, 1), dev);
             auto slope = ttnn::where(ttnn::lt(idxs, (float)n_head_log2), ttnn::rpow(ttnn::add(idxs, 1.f), m0)
                 , ttnn::rpow(ttnn::add(ttnn::multiply(ttnn::subtract(idxs, (float)n_head_log2), 2.f), 1.f), m1));
