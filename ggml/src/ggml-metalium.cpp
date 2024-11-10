@@ -20,6 +20,7 @@
 #include "ttnn/operations/experimental/auto_format/auto_format.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
+#include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "ttnn/types.hpp"
 #include <algorithm>
@@ -1410,6 +1411,43 @@ static void ggml_backend_metalium_repeat(ggml_backend_metalium_context * ctx, st
     };
 }
 
+static bool ggml_backend_metalium_can_outer_product(const struct ggml_tensor * dst)
+{
+    auto num_ones_in_shape = [](const ggml_tensor * t) {
+        int num_ones = 0;
+        for(int i = 0; i < GGML_MAX_DIMS; i++) {
+            if(t->ne[i] == 1) {
+                num_ones++;
+            }
+        }
+        return num_ones;
+    };
+    return num_ones_in_shape(dst->src[0]) >= 3 && num_ones_in_shape(dst->src[1]) >= 3;
+}
+
+static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC1_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    TensorWithMetadata* src0_meta = (TensorWithMetadata*)dst->src[0]->extra;
+
+    auto src0 = realize_ggml_view(dst->src[0]);
+    auto src1 = realize_ggml_view(dst->src[1]);
+
+    std::cout << "src0: " << src0->shape() << " src1: " << src1->shape() << std::endl;
+
+    auto res = ttnn::outer(*src0, *src1);
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
+        .ggtype = dst->type,
+        .bufctx = src0_meta->bufctx
+    };
+}
+
 // backend interface
 
 static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
@@ -1802,6 +1840,9 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_MUL_MAT:
                 ggml_backend_metalium_mul_mat(ctx, node);
                 break;
+            case GGML_OP_OUT_PROD:
+                ggml_backend_metalium_outer_product(ctx, node);
+                break;
 
             case GGML_OP_CONT:
             case GGML_OP_CPY:
@@ -2046,6 +2087,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return ggml_backend_metalium_can_softmax(op)  && !g_debug_flags.llama_hacks;
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
+        case GGML_OP_OUT_PROD:
+            return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         default:
             return false;
     }
@@ -2298,7 +2341,6 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
                 .reg = &reg,
                 .context = dev_ctx
             };
-            std::cerr << "Adding device " << dev_ctx->name << " with description " << dev_ctx->description << std::endl;
             ctx->devices.push_back(dev);
         }
         
