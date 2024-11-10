@@ -1887,7 +1887,8 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
         GGML_ASSERT(meta->tensor != NULL);
         GGML_ASSERT(meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE || meta->tensor->storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
         if(!ggml_tt_tensors_shape_equal(node, *meta->tensor)) {
-            tt::log_fatal(tt::LogType::LogAlways, "Mismatched tensor shapes for node '{}': GGML wants [{}, {}, {}, {}], TTNN generates {}\n", node->name, node->ne[0], node->ne[1], node->ne[2], node->ne[3], meta->tensor->shape());
+            tt::log_fatal(tt::LogType::LogAlways, "Mismatched tensor shapes for node '{}' ({}): GGML wants [{}, {}, {}, {}], TTNN generates {}\n"
+                , node->name, ggml_op_name(node->op), node->ne[0], node->ne[1], node->ne[2], node->ne[3], meta->tensor->shape());
             abort();
         }
     }
