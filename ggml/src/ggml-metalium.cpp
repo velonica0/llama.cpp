@@ -1170,7 +1170,8 @@ static bool ggml_backend_metalium_can_softmax(const struct ggml_tensor * dst)
 {
     float arr[2];
     memcpy(arr, dst->op_params, sizeof(arr));
-    if(dst->src[1] != nullptr && arr[1] != 0.f) {
+    auto [scale, max_bias] = arr;
+    if(dst->src[1] != nullptr && max_bias != 0.f) {
         return false;
     }
     if(dst->src[1] != nullptr) {
@@ -1223,7 +1224,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
             // const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
             auto make_tile = [](const tt::tt_metal::Tensor& t, tt::tt_metal::Device* dev) {
-                return ttnn::tilize_with_zero_padding(t).to(dev);
+                return ttnn::tilize_with_zero_padding(t.to(dev));
             };
 
             // const float slope = (max_bias > 0.0f) ? h < n_head_log2 ? powf(m0, h + 1) : powf(m1, 2*(h - n_head_log2) + 1) : 1.0f;
@@ -1234,7 +1235,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             // slope = tt::tt_metal::max(slope, lim);
             slope = ttnn::rpow(ttnn::add(slope, 1.f), m0);
 
-
+            // FIXME: Multiply is running into invalid broadcast (GGML is lexer then TTNN)
             x = ttnn::add(x, ttnn::multiply(*mask, slope));
         }
     }
