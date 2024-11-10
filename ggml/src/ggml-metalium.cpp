@@ -70,6 +70,7 @@ struct ggml_backend_metalium_device_context {
     int device_id = -1;
     std::string name;
     std::string description;
+    ggml_backend_dev_t* ggml_backend_dev_interface = nullptr;
 };
 
 struct ggml_backend_metalium_reg_context {
@@ -1710,7 +1711,8 @@ static ggml_backend_buffer_type_i ggml_backend_metalium_buffer_type_interface = 
     /* .is_host          = */ ggml_backend_metalium_buffer_type_is_host,
 };
 
-ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(int device) {
+ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(ggml_backend_dev_t dev, ggml_backend_metalium_device_context* dev_ctx) {
+    auto device = dev_ctx->device_id;
     GGML_ASSERT((size_t)device < tt::tt_metal::GetNumAvailableDevices());
     static std::map<int, ggml_backend_buffer_type> buffer_type_map;
     static std::set<std::unique_ptr<ggml_backend_metalium_buffer_type_context>> buffer_type_context_deleter;
@@ -1732,9 +1734,12 @@ ggml_backend_buffer_type_t ggml_backend_metalium_buffer_type(int device) {
         });
     auto* bufctx_ptr = bufctx.get();
     buffer_type_context_deleter.insert(std::move(bufctx));
+
+    ggml_backend_metalium_reg_context* regctx = (ggml_backend_metalium_reg_context*)(dev->reg->context);
+    GGML_ASSERT((size_t)device < regctx->devices.size());
     buffer_type_map[device] = {
         /* .iface    = */ ggml_backend_metalium_buffer_type_interface,
-        /* .device   = */ NULL, // TODO: Fill in the device interface
+        /* .device   = */ regctx->devices[device],
         /* .context  = */ bufctx_ptr,
     };
     return &buffer_type_map[device];
@@ -2202,7 +2207,7 @@ static void ggml_backend_metalium_device_get_props(ggml_backend_dev_t dev, ggml_
         .caps = ggml_backend_dev_caps {
             .async = true,
             .host_buffer = false,
-            .buffer_from_host_ptr = true,
+            .buffer_from_host_ptr = false,
             .events = false,
         }
     };
@@ -2210,7 +2215,7 @@ static void ggml_backend_metalium_device_get_props(ggml_backend_dev_t dev, ggml_
 
 static ggml_backend_buffer_type_t ggml_backend_metalium_get_buffer_type(ggml_backend_dev_t dev) {
     ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
-    return ggml_backend_metalium_buffer_type(ctx->device_id);
+    return ggml_backend_metalium_buffer_type(dev, ctx);
 }
 
 static const ggml_backend_device_i ggml_backend_metalium_device_interface = {
@@ -2290,6 +2295,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
                 .reg = &reg,
                 .context = dev_ctx
             };
+            std::cerr << "Adding device " << dev_ctx->name << " with description " << dev_ctx->description << std::endl;
             ctx->devices.push_back(dev);
         }
         
