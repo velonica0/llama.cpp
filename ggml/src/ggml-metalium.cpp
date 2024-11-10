@@ -1235,8 +1235,9 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             auto idxs = make_tile(ttnn::arange(0, n_head, 1), dev);
             auto slope = ttnn::where(ttnn::lt(idxs, (float)n_head_log2), ttnn::rpow(ttnn::add(idxs, 1.f), m0)
                 , ttnn::rpow(ttnn::add(ttnn::multiply(ttnn::subtract(idxs, (float)n_head_log2), 2.f), 1.f), m1));
+            auto positional_bias = ttnn::matmul(slope, ttnn::transpose(idxs, -2, -1)); // FIXME: make sure this is correct
 
-            x = ttnn::add(x, ttnn::multiply(*mask, slope));
+            x = ttnn::add(x, ttnn::multiply(*mask, positional_bias));
         }
     }
     x = ttnn::operations::normalization::softmax(x, tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG, std::nullopt, true);
