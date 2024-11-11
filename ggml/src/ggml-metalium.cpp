@@ -146,6 +146,24 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
     }
 }
 
+static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* device)
+{
+    ttnn::DeviceComputeKernelConfig cfg;
+    if(device->arch() == tt::ARCH::GRAYSKULL) {
+        cfg = ttnn::GrayskullComputeKernelConfig{
+            .math_fidelity = MathFidelity::HiFi4
+        };
+    }
+    else {
+        cfg = ttnn::WormholeComputeKernelConfig{
+            .math_fidelity = MathFidelity::HiFi4,
+            .fp32_dest_acc_en = true,
+            .packer_l1_acc = true
+        };
+    }
+    return cfg;
+}
+
 // Debug flags that can be enabled at runtime. Because recompiling the backend takes forever
 // this enables faster iteration on debugging. Eventually these should be removed
 // NOTE: DO NOT invent more _hack flags. Else it devolves into a mess like what BUDA did
@@ -746,19 +764,7 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
     if(a.dtype() == tt::tt_metal::DataType::BFLOAT16 && b.dtype() == tt::tt_metal::DataType::BFLOAT16) {
         // Fast path
         // Need to increase the math fidelity as moreh_matmul by default uses LoFi and won't pass GGML unit tests
-        ttnn::DeviceComputeKernelConfig cfg;
-        if(a.device()->arch() == tt::ARCH::GRAYSKULL) {
-            cfg = ttnn::GrayskullComputeKernelConfig{
-                .math_fidelity = MathFidelity::HiFi4
-            };
-        }
-        else {
-            cfg = ttnn::WormholeComputeKernelConfig{
-                .math_fidelity = MathFidelity::HiFi4,
-                .fp32_dest_acc_en = true
-            };
-        }
-
+        ttnn::DeviceComputeKernelConfig cfg = make_compute_kernel_config(a.device());
         *cm = {
             .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::moreh_matmul(b, a, false, true, std::nullopt, std::nullopt, std::nullopt, cfg)),
             .ggtype = dst->type,
@@ -769,7 +775,11 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
         auto aT = ttnn::transpose(a, -2, -1);
         // TODO: Ask TT to support multiplication of pre-transposed tensors. Calling transpose here is inefficient
         // https://github.com/tenstorrent/tt-metal/issues/9709
-        ttnn::operations::matmul::Matmul cfg = ttnn::operations::matmul::Matmul{};
+        ttnn::operations::matmul::Matmul cfg = ttnn::operations::matmul::Matmul{
+            .compute_kernel_config = make_compute_kernel_config(a.device()),
+            // XXX: Why output_tile doesn't have a default value?
+            .output_tile = std::nullopt
+        };
         *cm = {
             .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::operations::matmul::matmul(b, aT, std::nullopt, cfg)),
             .ggtype = dst->type,
@@ -1269,7 +1279,8 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             x = ttnn::add(x, ttnn::multiply(*mask, positional_bias));
         }
     }
-    x = ttnn::operations::normalization::softmax(x, tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG, std::nullopt, true);
+    ttnn::DeviceComputeKernelConfig cfg = make_compute_kernel_config(x.device());
+    x = ttnn::operations::normalization::softmax(x, tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG, cfg, true);
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(x)),
         .ggtype = dst->type,
@@ -2109,7 +2120,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
-        // case GGML_OP_SOFT_MAX:   // Accuracy issue: Leading to LLM incohorence
+        // case GGML_OP_SOFT_MAX:   // Not quite as inaccurate to cause incohorence but still not quite right
         //     return ggml_backend_metalium_can_softmax(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
