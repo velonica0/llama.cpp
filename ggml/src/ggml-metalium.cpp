@@ -2110,6 +2110,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
             return ctx->device->arch() != tt::ARCH::GRAYSKULL;
 
+        ///////////////////////////////////////////////////////////////////////////////////
+        // This chunk of operators suffers from accuracy issues. They can be disbaled to run LLM coherently
         case GGML_OP_ADD:       // Accuracy issue: Leading to LLM incohorence
         case GGML_OP_SUB:       // Accuracy issue: Leading to LLM incohorence
         case GGML_OP_MUL:       // Accuracy issue: Leading to LLM incohorence
@@ -2122,12 +2124,13 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op) && !g_debug_flags.llm_hacks;
         case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
             return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_SOFT_MAX:   // Not quite as inaccurate to cause incohorence but still not quite right
+            return ggml_backend_metalium_can_softmax(op) && !g_debug_flags.llm_hacks;
+        ///////////////////////////////////////////////////////////////////////////////////
         case GGML_OP_GET_ROWS:
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
-        case GGML_OP_SOFT_MAX:   // Not quite as inaccurate to cause incohorence but still not quite right
-            return ggml_backend_metalium_can_softmax(op) && !g_debug_flags.llm_hacks;
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
         case GGML_OP_OUT_PROD:
