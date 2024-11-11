@@ -2067,24 +2067,24 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
             return ctx->device->arch() != tt::ARCH::GRAYSKULL;
 
-        case GGML_OP_ADD:
-        case GGML_OP_SUB:
-        case GGML_OP_MUL:
-            return tensor_supported(src1) && numpy_broadcast_rule(src0, src1);
-        // DIV does not support broadcasting on TTNN
-        case GGML_OP_DIV:
-            return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0;
+        // case GGML_OP_ADD:       // Accuracy issue: Leading to LLM incohorence
+        // case GGML_OP_SUB:       // Accuracy issue: Leading to LLM incohorence
+        // case GGML_OP_MUL:       // Accuracy issue: Leading to LLM incohorence
+        //     return tensor_supported(src1) && numpy_broadcast_rule(src0, src1);
+        // // DIV does not support broadcasting on TTNN
+        // case GGML_OP_DIV:       // Accuracy issue: Leading to LLM incohorence
+        //     return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0;
 
-        case GGML_OP_MUL_MAT:
-            return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op);
-        case GGML_OP_SET:
-            return tensor_supported(src1) && ggml_backend_metalium_can_set(op);
+        // case GGML_OP_MUL_MAT:   // Accuracy issue: Leading to LLM incohorence
+        //     return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op);
+        // case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
+        //     return tensor_supported(src1) && ggml_backend_metalium_can_set(op);
         case GGML_OP_GET_ROWS:
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
-        case GGML_OP_SOFT_MAX:
-            return ggml_backend_metalium_can_softmax(op);
+        // case GGML_OP_SOFT_MAX:   // Accuracy issue: Leading to LLM incohorence
+        //     return ggml_backend_metalium_can_softmax(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
         case GGML_OP_OUT_PROD:
