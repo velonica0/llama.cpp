@@ -151,12 +151,14 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* 
     ttnn::DeviceComputeKernelConfig cfg;
     if(device->arch() == tt::ARCH::GRAYSKULL) {
         cfg = ttnn::GrayskullComputeKernelConfig{
-            .math_fidelity = MathFidelity::HiFi4
+            .math_fidelity = MathFidelity::HiFi4,
+            .math_approx_mode = false,
         };
     }
     else if (device->arch() == tt::ARCH::WORMHOLE_B0 || device->arch() == tt::ARCH::BLACKHOLE) {
         cfg = ttnn::WormholeComputeKernelConfig{
             .math_fidelity = MathFidelity::HiFi4,
+            .math_approx_mode = false,
             .fp32_dest_acc_en = true,
             .packer_l1_acc = true
         };
@@ -2112,19 +2114,19 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
 
         ///////////////////////////////////////////////////////////////////////////////////
         // This chunk of operators suffers from accuracy issues. They can be disbaled to run LLM coherently
-        case GGML_OP_ADD:       // Accuracy issue: Leading to LLM incohorence
-        case GGML_OP_SUB:       // Accuracy issue: Leading to LLM incohorence
-        case GGML_OP_MUL:       // Accuracy issue: Leading to LLM incohorence
+        case GGML_OP_ADD:       // Not quite as inaccurate to cause incohorence but still not quite right
+        case GGML_OP_SUB:       // Not quite as inaccurate to cause incohorence but still not quite right
+        case GGML_OP_MUL:       // Not quite as inaccurate to cause incohorence but still not quite right
             return tensor_supported(src1) && numpy_broadcast_rule(src0, src1) && !g_debug_flags.llm_hacks;
         // DIV does not support broadcasting on TTNN
-        case GGML_OP_DIV:       // Accuracy issue: Leading to LLM incohorence
+        case GGML_OP_DIV:       // Not quite as inaccurate to cause incohorence but still not quite right
             return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0 && !g_debug_flags.llm_hacks;
 
         case GGML_OP_MUL_MAT:   // Accuracy issue: Leading to LLM incohorence
             return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op) && !g_debug_flags.llm_hacks;
-        case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
-            return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
-        case GGML_OP_SOFT_MAX:   // Not quite as inaccurate to cause incohorence but still not quite right
+        // case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
+        //     return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_SOFT_MAX:  // Not quite as inaccurate to cause incohorence but still not quite right
             return ggml_backend_metalium_can_softmax(op) && !g_debug_flags.llm_hacks;
         ///////////////////////////////////////////////////////////////////////////////////
         case GGML_OP_GET_ROWS:
