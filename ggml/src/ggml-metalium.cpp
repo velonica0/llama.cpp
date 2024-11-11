@@ -1179,11 +1179,11 @@ static bool ggml_backend_metalium_can_softmax(const struct ggml_tensor * dst)
         return false;
     }
     if(dst->src[1] != nullptr) {
-        // RWKV somehow has x [1, 1, 32, 32] and mask [1, 32, 2, 32]
+        // TinyLLaMA somehow has x [1, 32, 1, 32] and mask [1, 1, 32, 32]
         // Don't know what's this about
         // FIXME: This masks a problem in RWKV. Need proper fix
         const ggml_tensor *src1 = dst->src[1];
-        return numpy_broadcast_rule(src1, dst);
+        return numpy_broadcast_rule(src1, dst) && dst->ne[1] == src1->ne[1];
     }
     return true;
 }
@@ -1949,7 +1949,7 @@ static bool ggml_backend_metalium_device_supports_op(ggml_backend_dev_t device, 
     bool ok = ggml_backend_metalium_device_supports_op_internal(device, op);
     // debug print to log rejected ops
     if(!ok && g_debug_flags.print_rejected_ops) {
-        fprintf(stderr, "REJECT op %s\n", ggml_op_desc(op));
+        fprintf(stderr, "REJECT op %s (%s)\n", ggml_op_name(op->op), op->name);
         if(op->src[0]) {
             fprintf(stderr, "  src0 shape [%ld %ld %ld %ld], dtype = %s\n", op->src[0]->ne[0], op->src[0]->ne[1], op->src[0]->ne[2], op->src[0]->ne[3], ggml_type_name(op->src[0]->type));
         }
@@ -2083,10 +2083,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
-        // FIXME: The softmax code is a bit buggy - generates the wron shape when running Tiny LLaMA.
-        // needs to be fixed
         case GGML_OP_SOFT_MAX:
-            return ggml_backend_metalium_can_softmax(op)  && !g_debug_flags.llama_hacks;
+            return ggml_backend_metalium_can_softmax(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
         case GGML_OP_OUT_PROD:
