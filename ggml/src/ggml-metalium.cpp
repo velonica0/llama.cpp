@@ -174,6 +174,7 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* 
 struct ggml_backend_metalium_debug_flags {
     bool print_rejected_ops = false;        // Print ops that the backend rejects
     bool print_view = false;                // Print details when a VIEW op is being realized
+    bool llm_hacks = false;                 // Disables operators known to cause accuracy issues
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -192,6 +193,7 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
     return ggml_backend_metalium_debug_flags {
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
         .print_view = func("GGML_METALIUM_PRINT_VIEW"),
+        .llm_hacks = func("GGML_METALIUM_LLM_HACKS")
     };
 }();
 
@@ -2108,18 +2110,18 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
             return ctx->device->arch() != tt::ARCH::GRAYSKULL;
 
-        // case GGML_OP_ADD:       // Accuracy issue: Leading to LLM incohorence
-        // case GGML_OP_SUB:       // Accuracy issue: Leading to LLM incohorence
-        // case GGML_OP_MUL:       // Accuracy issue: Leading to LLM incohorence
-        //     return tensor_supported(src1) && numpy_broadcast_rule(src0, src1);
-        // // DIV does not support broadcasting on TTNN
-        // case GGML_OP_DIV:       // Accuracy issue: Leading to LLM incohorence
-        //     return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0;
+        case GGML_OP_ADD:       // Accuracy issue: Leading to LLM incohorence
+        case GGML_OP_SUB:       // Accuracy issue: Leading to LLM incohorence
+        case GGML_OP_MUL:       // Accuracy issue: Leading to LLM incohorence
+            return tensor_supported(src1) && numpy_broadcast_rule(src0, src1) && !g_debug_flags.llm_hacks;
+        // DIV does not support broadcasting on TTNN
+        case GGML_OP_DIV:       // Accuracy issue: Leading to LLM incohorence
+            return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0 && !g_debug_flags.llm_hacks;
 
-        // case GGML_OP_MUL_MAT:   // Accuracy issue: Leading to LLM incohorence
-        //     return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op);
-        // case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
-        //     return tensor_supported(src1) && ggml_backend_metalium_can_set(op);
+        case GGML_OP_MUL_MAT:   // Accuracy issue: Leading to LLM incohorence
+            return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
+            return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
         case GGML_OP_GET_ROWS:
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
