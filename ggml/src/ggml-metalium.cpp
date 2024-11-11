@@ -154,12 +154,16 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* 
             .math_fidelity = MathFidelity::HiFi4
         };
     }
-    else {
+    else if (device->arch() == tt::ARCH::WORMHOLE_B0 || device->arch() == tt::ARCH::BLACKHOLE) {
         cfg = ttnn::WormholeComputeKernelConfig{
             .math_fidelity = MathFidelity::HiFi4,
             .fp32_dest_acc_en = true,
             .packer_l1_acc = true
         };
+    }
+    else {
+        tt::log_fatal("Unsupported device arch {} in make_compute_kernel_config", device->arch());
+        abort();
     }
     return cfg;
 }
