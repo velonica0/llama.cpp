@@ -781,9 +781,11 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
     }
     else {
         auto aT = ttnn::transpose(a, -2, -1);
+        bool bcast_batch = aT.shape()[0] != b.shape()[0];
         // TODO: Ask TT to support multiplication of pre-transposed tensors. Calling transpose here is inefficient
         // https://github.com/tenstorrent/tt-metal/issues/9709
         ttnn::operations::matmul::Matmul cfg = ttnn::operations::matmul::Matmul{
+            .bcast_batch = bcast_batch,
             .compute_kernel_config = make_compute_kernel_config(a.device()),
             // XXX: Why output_tile doesn't have a default value?
             .output_tile = std::nullopt
