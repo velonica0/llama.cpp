@@ -317,7 +317,9 @@ tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
         else if constexpr(std::is_same_v<Dst, float>) {
             dst = val;
         }
-        GGML_UNREACHABLE();
+        else {
+            GGML_UNREACHABLE();
+        }
     };
 
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
