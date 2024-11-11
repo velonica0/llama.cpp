@@ -314,9 +314,10 @@ tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
         if constexpr(std::is_same_v<Dst, bfloat16>) {
             dst = bfloat16(val);
         }
-        else {
+        else if constexpr(std::is_same_v<Dst, float>) {
             dst = val;
         }
+        GGML_UNREACHABLE();
     };
 
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
@@ -349,8 +350,8 @@ tt::tt_metal::OwnedStorage ggml_quantized2owned_storage(const void* src, ggml_te
 template <typename SrcType>
 void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]] tt::tt_metal::CommandQueue& queue, ggml_type dst_ggtype) {
     // Converts TT tensors to GGML types
-    ttnn::Shape shape = tensor.shape();
-    ttnn::Shape padded_shape = tensor.shape().with_tile_padding();
+    ttnn::SimpleShape shape = tensor.shape().logical_shape();
+    ttnn::SimpleShape padded_shape = tensor.shape().padded_shape();
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16>);
 
     tt::tt_metal::Tensor row_major_tensor = tensor.cpu().to(tt::tt_metal::Layout::ROW_MAJOR);
@@ -381,7 +382,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     // tt::tt_metal::memcpy(queue, buf.data(), row_major_tensor);
     // tt::tt_metal::Finish(queue);
     void* intermid = nullptr;
-    std::vector<uint8_t> intermid_buf;
+    std::vector<std::byte> intermid_buf;
     bool need_quantized_conversion = false;
     bool src_dst_same = false;
     if(dst_ggtype == GGML_TYPE_F32 && !std::is_same_v<SrcType, float>) {
@@ -400,7 +401,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
         src_dst_same = true;
     }
     else {
-        intermid_buf.resize(shape.padded_shape().volume() * sizeof(float));
+        intermid_buf.resize(shape.volume() * sizeof(float));
         intermid = intermid_buf.data();
         need_quantized_conversion = true;
         src_dst_same = false;
@@ -418,9 +419,6 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
 
     // Tilize to ROW_MAJOR doesn't mean the tensor is contiguous. It still has the underlying 32x32 tiles
     // we need to view into the tensor to get the contiguous data
-    // TODO: Make sure this is correct. As of now not tested for large (>32x32) tensors
-    // TODO: There's a lot of optimization that can be done here
-    // TODO: Chunk this loop to avoid cache misses
     const std::array<size_t, 4> stride = {padded_shape[1] * padded_shape[2] * padded_shape[3],
                                     padded_shape[2] * padded_shape[3],
                                     padded_shape[3],
@@ -452,10 +450,9 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     if (need_quantized_conversion) {
         GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16) && "This block should only reach for quantized data types");
         GGML_ASSERT(intermid_buf.size() != 0);
-        size_t real_volume = shape[0] * shape[1] * shape[2] * shape[3];
         const ggml_type_traits* trait = ggml_get_type_traits(dst_ggtype);
         GGML_ASSERT(trait->to_float != NULL);
-        trait->from_float((float*)intermid, dst, real_volume);
+        trait->from_float((float*)intermid, dst, shape.volume());
     }
 }
 
@@ -1667,10 +1664,9 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     // std::cout << "  TTNN thinks shape: " << shape << std::endl;
     std::shared_ptr<tt::tt_metal::Tensor> t = realize_ggml_view(tensor);
     GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, *t));
-    tt::tt_metal::Tensor holder;
+    GGML_ASSERT(t->layout() == tt::tt_metal::Layout::TILE);
     if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 || t->dtype() != tt::tt_metal::DataType::FLOAT32) {
-        holder = ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16);
-        t = std::make_shared<tt::tt_metal::Tensor>(std::move(holder));
+        *t = ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16);
     }
 
     // TODO: Proper handling of data types
