@@ -726,7 +726,7 @@ static bool ggml_backend_metalium_can_mul_mat(const struct ggml_tensor * dst)
     // For now we simply only allow those shapes. We transpose the shapes ourselves
     // TODO: Detect when shape[1] can be removed and do that automagically
 
-    return src0->ne[0] == src1->ne[0] && src0->ne[2] == src1->ne[2] &&
+    return src0->ne[0] == src1->ne[0] && src0->ne[2] == 1 && src1->ne[2] == 1 &&
         (src0->ne[3] == src1->ne[3] || src0->ne[3] == 1);
 }
 
@@ -2251,7 +2251,7 @@ static ggml_backend_dev_t ggml_backend_metalium_reg_get_device(ggml_backend_reg_
 static const ggml_backend_reg_i ggml_backend_metalium_reg_interface = {
     /* .get_name          = */ ggml_backend_metaliium_reg_get_name,
     /* .get_device_count  = */ ggml_backend_metalium_reg_get_device_count,
-    /* .get_device_get    = */ ggml_backend_metalium_reg_get_device,
+    /* .get_device        = */ ggml_backend_metalium_reg_get_device,
     /* .get_proc_address  = */ NULL,
 };
 
