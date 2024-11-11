@@ -117,14 +117,41 @@ static bool ggml_tt_tensors_shape_equal(const ggml_tensor* ggtensor, const tt::t
     return true;
 }
 
+static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
+{
+    std::cerr << "GGML tensor: " << ggtensor->name << "\n"
+        << "  type: " << ggml_type_name(ggtensor->type) << "\n"
+        << "  ne: " << ggtensor->ne[0] << " " << ggtensor->ne[1] << " " << ggtensor->ne[2] << " " << ggtensor->ne[3] << "\n"
+        << "  op: " << ggml_op_name(ggtensor->op) << "\n"
+        << "  src0: " << ggtensor->src[0] << "\n";
+    if(ggtensor->src[0] != nullptr) {
+        std::cerr << "    src0->name: " << ggtensor->src[0]->name << "\n"
+            << "    src0->type: " << ggml_type_name(ggtensor->src[0]->type) << "\n"
+            << "    src0->ne: " << ggtensor->src[0]->ne[0] << " " << ggtensor->src[0]->ne[1] << " " << ggtensor->src[0]->ne[2] << " " << ggtensor->src[0]->ne[3] << "\n"
+            << "    src0->op: " << ggml_op_name(ggtensor->src[0]->op) << "\n";
+    }
+    std::cerr << "  src1: " << ggtensor->src[1] << "\n";
+    if(ggtensor->src[1] != nullptr) {
+        std::cerr << "    src1->name: " << ggtensor->src[1]->name << "\n"
+            << "    src1->type: " << ggml_type_name(ggtensor->src[1]->type) << "\n"
+            << "    src1->ne: " << ggtensor->src[1]->ne[0] << " " << ggtensor->src[1]->ne[1] << " " << ggtensor->src[1]->ne[2] << " " << ggtensor->src[1]->ne[3] << "\n"
+            << "    src1->op: " << ggml_op_name(ggtensor->src[1]->op) << "\n";
+    }
+    std::cerr << "view_src: " << ggtensor->view_src << "\n";
+    if(ggtensor->view_src != nullptr) {
+        std::cerr << "    view_src->name: " << ggtensor->view_src->name << "\n"
+            << "    view_src->type: " << ggml_type_name(ggtensor->view_src->type) << "\n"
+            << "    view_src->ne: " << ggtensor->view_src->ne[0] << " " << ggtensor->view_src->ne[1] << " " << ggtensor->view_src->ne[2] << " " << ggtensor->view_src->ne[3] << "\n"
+            << "    view_src->op: " << ggml_op_name(ggtensor->view_src->op) << "\n";
+    }
+}
+
 // Debug flags that can be enabled at runtime. Because recompiling the backend takes forever
 // this enables faster iteration on debugging. Eventually these should be removed
 // NOTE: DO NOT invent more _hack flags. Else it devolves into a mess like what BUDA did
-// TODO: Get rid of llama_hacks ASAP
 struct ggml_backend_metalium_debug_flags {
-    bool llama_hacks = false;               // Hacks needed to get Tiny LLaMA to work
     bool print_rejected_ops = false;        // Print ops that the backend rejects
-    bool print_view = false;            // Print details when a VIEW op is being realized
+    bool print_view = false;                // Print details when a VIEW op is being realized
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -141,7 +168,6 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
     };
 
     return ggml_backend_metalium_debug_flags {
-        .llama_hacks = func("GGML_METALIUM_LLAMA_HACKS"),
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
         .print_view = func("GGML_METALIUM_PRINT_VIEW"),
     };
@@ -1976,7 +2002,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // FIXME: Tiny LLaMA generates a [256, 1] tensor during inference. Current rules blocks such tensors from
         //       being executed on TTNN. But TTNN actually just doesn't support tilizing into a tensor where the
         //       last dimension is not aligned. Uncomment this if() and Tiny LLaMA will run (+ the softmax stuff).
-        if(tensor->op != GGML_OP_NONE && g_debug_flags.llama_hacks) {
+        if(tensor->op != GGML_OP_NONE) {
             return true;
         }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
