@@ -2163,7 +2163,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             }
         case GGML_OP_LEAKY_RELU:
         case GGML_OP_NONE:
-        case GGML_OP_CONT: // BAD!
+        case GGML_OP_CONT:
         case GGML_OP_CPY:
         case GGML_OP_DUP:
         case GGML_OP_RESHAPE:
@@ -2188,8 +2188,6 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
             return ctx->device->arch() != tt::ARCH::GRAYSKULL;
 
-        ///////////////////////////////////////////////////////////////////////////////////
-        // This chunk of operators suffers from accuracy issues. They can be disbaled to run LLM coherently
         case GGML_OP_ADD:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
@@ -2200,11 +2198,10 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
 
         case GGML_OP_MUL_MAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op);
-        // case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
-        //     return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_SET:
+            return tensor_supported(src1) && ggml_backend_metalium_can_set(op);
         case GGML_OP_SOFT_MAX:
             return ggml_backend_metalium_can_softmax(op);
-        ///////////////////////////////////////////////////////////////////////////////////
         case GGML_OP_GET_ROWS:
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
         case GGML_OP_CONCAT:
@@ -2426,6 +2423,8 @@ static std::string identidy_tensotrrent_device(const ttnn::Device* device)
     return "Unknown Tenstorrent device";
 }
 
+static std::vector<std::unique_ptr<ggml_backend_device>> g_backend_device_holder;
+static std::vector<std::unique_ptr<ggml_backend_metalium_device_context>> g_backend_device_context_holder;
 GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
 {
     static ggml_backend_reg reg;
@@ -2466,6 +2465,8 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
                 .context = dev_ctx
             };
             ctx->devices.push_back(dev);
+            g_backend_device_context_holder.push_back(std::unique_ptr<ggml_backend_metalium_device_context>(dev_ctx));
+            g_backend_device_holder.push_back(std::unique_ptr<ggml_backend_device>(dev));
         }
         
         reg = ggml_backend_reg {
