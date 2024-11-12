@@ -1664,8 +1664,18 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     // std::cout << "get_tensor():\n";
     // std::cout << "  GGML thinks shape: " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << std::endl;
     // std::cout << "  TTNN thinks shape: " << shape << std::endl;
-    std::shared_ptr<tt::tt_metal::Tensor> t = realize_ggml_view(tensor);
-    GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, *t));
+    std::shared_ptr<tt::tt_metal::Tensor> t;
+    if(tensor->op == GGML_OP_TRANSPOSE) {
+        // TODO: Recusively check if the source tensor is a view tensor
+        // HACK: Yeah this one is stupid. GGML as a row-major framework uses lazy evaluation for transpose.
+        //      Which means if we try to copy a transposed tensor. We should not transpose it. Else the other
+        //      backend would transpose it again.
+        t = realize_ggml_view(tensor->src[0]);
+    }
+    else {
+        t = realize_ggml_view(tensor);
+        GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, *t));
+    }
     GGML_ASSERT(t->layout() == tt::tt_metal::Layout::TILE);
     if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 || t->dtype() != tt::tt_metal::DataType::FLOAT32) {
         *t = ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16);
