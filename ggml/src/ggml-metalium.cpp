@@ -183,7 +183,6 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* 
 struct ggml_backend_metalium_debug_flags {
     bool print_rejected_ops = false;        // Print ops that the backend rejects
     bool print_view = false;                // Print details when a VIEW op is being realized
-    bool llm_hacks = false;                 // Disables operators known to cause accuracy issues
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -201,8 +200,7 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
 
     return ggml_backend_metalium_debug_flags {
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
-        .print_view = func("GGML_METALIUM_PRINT_VIEW"),
-        .llm_hacks = func("GGML_METALIUM_LLM_HACKS")
+        .print_view = func("GGML_METALIUM_PRINT_VIEW")
     };
 }();
 
@@ -350,6 +348,7 @@ tt::tt_metal::OwnedStorage ggml_quantized2owned_storage(const void* src, ggml_te
     // TODO: Currently we decompress the entire quantized data into float and then convert to bfloat16
     // (So later on we can convert again to TT quantized types). We SHOULD be able to not decompress
     // the entire quantized GGML tensor. Save on memory.
+    // TODO: Consider parallelizing this. It is quite slow
     std::vector<float> vec(ggml_nelements(tensor));
     trait->to_float(src, vec.data(), ggml_nelements(tensor));
 
@@ -457,7 +456,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     }
 
     if (need_quantized_conversion) {
-        GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16) && "This block should only reach for quantized data types");
+        GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16) && "This block should only reach for quantized data types or FP16");
         GGML_ASSERT(intermid_buf.size() != 0);
         const ggml_type_traits* trait = ggml_get_type_traits(dst_ggtype);
         GGML_ASSERT(trait->to_float != NULL);
@@ -499,7 +498,7 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
 
     // SLOW path. Copy the tensor to the CPU, unpad it, reshape it, and tileize it back
     ttnn::SimpleShape begin({0, 0, 0, 0});
-    ttnn::SimpleShape end({tensor.shape()[0], tensor.shape()[1], tensor.shape()[2], tensor.shape()[3]});
+    ttnn::SimpleShape end = tensor.shape().logical_shape();
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu().unpad(begin, end);
     tt::tt_metal::Tensor reshaped = row_major_tensor.reshape(ttnn::SimpleShape(target_shape));
@@ -713,14 +712,6 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
     } while(0)
 #define GGML_METALIUM_OP_SRC0_SANITY_CHECK(_node) GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, 0)
 #define GGML_METALIUM_OP_SRC1_SANITY_CHECK(_node) GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, 1)
-#define GGML_METALIUM_OP_CHECK_TTTENSOR(_node, _idx) \
-    do { \
-        auto _meta = (TensorWithMetadata*)((_node)->src[_idx]->extra); \
-        GGML_ASSERT(_meta != NULL); \
-        GGML_ASSERT(_meta->tensor != NULL); \
-    } while(0)
-#define GGML_METALIUM_OP_SRC0_CHECK_TTTENSOR(_node) GGML_METALIUM_OP_CHECK_TTTENSOR(_node, 0)
-#define GGML_METALIUM_OP_SRC1_CHECK_TTTENSOR(_node) GGML_METALIUM_OP_CHECK_TTTENSOR(_node, 1)
 
 static bool ggml_backend_metalium_can_mul_mat(const struct ggml_tensor * dst)
 {
@@ -2094,12 +2085,6 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         if(tensor == NULL || !is_ggml_type_supported_by_metalium(tensor->type, ctx->device->arch())) {
             return false;
         }
-        // FIXME: Tiny LLaMA generates a [256, 1] tensor during inference. Current rules blocks such tensors from
-        //       being executed on TTNN. But TTNN actually just doesn't support tilizing into a tensor where the
-        //       last dimension is not aligned. Uncomment this if() and Tiny LLaMA will run (+ the softmax stuff).
-        if(tensor->op != GGML_OP_NONE && g_debug_flags.llm_hacks) {
-            return true;
-        }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
 
         tt::tt_metal::DataType tt_type = ggml2tt_type(tensor->type, ctx->device->arch());
@@ -2294,17 +2279,6 @@ bool ggml_backend_is_metalium(ggml_backend_t backend) {
     return backend != NULL && ggml_guid_matches(backend->guid, ggml_backend_metalium_guid());
 }
 
-
-ggml_backend_t ggml_backend_reg_metalium_init(const char * params, void * user_data)
-{
-    // Sanity check for the environment
-    static_assert(tt::tt_metal::MAX_NUM_DIMENSIONS >= GGML_MAX_DIMS, "tt::tt_metal::MAX_NUM_DIMENSIONS must be at least GGML_MAX_DIMS");
-
-    GGML_UNUSED(params);
-    GGML_UNUSED(user_data);
-    return ggml_backend_metalium_init(0);
-}
-
 static const char * ggml_backend_metaliium_reg_get_name(ggml_backend_reg_t reg) {
     GGML_UNUSED(reg);
     return "Metalium";
@@ -2415,9 +2389,9 @@ static std::string identidy_tensotrrent_device(const ttnn::Device* device)
     }
     if(device->arch() == tt::ARCH::WORMHOLE_B0) {
         if(grid_size.x == 8 && grid_size.y == 7) {
-            return "Tenstorrent Wormhole N300";
+            return "Tenstorrent Wormhole n300";
         }
-        return "Tenstorrent Wormhole N150";
+        return "Tenstorrent Wormhole n150";
     }
 
     return "Unknown Tenstorrent device";

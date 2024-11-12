@@ -571,10 +571,15 @@ int main()
         return ggml_mul_mat(ctx, a, b);
     }, "2D matrix multiplication (result non square, non tile aligned)"));
     tests.push_back(make_test([](ggml_context* ctx) {
-        ggml_tensor* a = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, 32, 64, 10);
-        ggml_tensor* b = ggml_new_tensor_3d(ctx, GGML_TYPE_F32, 32, 64, 10);
+        ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 64, 1, 10);
+        ggml_tensor* b = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 64, 1, 10);
         return ggml_mul_mat(ctx, a, b);
-    }, "3D matrix multiplication"));
+    }, "4D matrix multiplication"));
+    tests.push_back(make_test([](ggml_context* ctx) {
+        ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 64, 1, 1);
+        ggml_tensor* b = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 64, 1, 10);
+        return ggml_mul_mat(ctx, a, b);
+    }, "4D matrix multiplication with broadcast"));
     tests.push_back(make_test([](ggml_context* ctx) {
         ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 64, 32);
         ggml_tensor* b = ggml_new_tensor_1d(ctx, GGML_TYPE_F32, 64);
