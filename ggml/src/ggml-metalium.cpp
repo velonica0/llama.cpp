@@ -11,18 +11,14 @@
 
 #include "host_api.hpp"
 #include "impl/dispatch/command_queue.hpp"
-#include "ttnn/distributed/api.hpp"
-#include "ttnn/distributed/types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/data_movement/reshape_on_device/reshape.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
-#include "ttnn/operations/experimental/auto_format/auto_format.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
-#include "ttnn/types.hpp"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -32,7 +28,6 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
-#include <string_view>
 #include <ttnn/core.hpp>
 #include <ttnn/device.hpp>
 #include <ttnn/operations/eltwise/binary/binary.hpp>
