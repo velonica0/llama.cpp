@@ -128,9 +128,10 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
     if(ggtensor->src[0] != nullptr) {
         std::cerr << "    src0->name: " << ggtensor->src[0]->name << "\n"
             << "    src0->type: " << ggml_type_name(ggtensor->src[0]->type) << "\n"
-            << "    src0->ne: " << ggtensor->src[0]->ne[0] << " " << ggtensor->src[0]->ne[1] << " " << ggtensor->src[0]->ne[2] << " " << ggtensor->src[0]->ne[3] << "\n"
-            << "    src0->nb: " << ggtensor->src[0]->nb[0] << " " << ggtensor->src[0]->nb[1] << " " << ggtensor->src[0]->nb[2] << " " << ggtensor->src[0]->nb[3] << "\n"
-            << "    src0->op: " << ggml_op_name(ggtensor->src[0]->op) << "\n";
+            << "    src0->ne:   " << ggtensor->src[0]->ne[0] << " " << ggtensor->src[0]->ne[1] << " " << ggtensor->src[0]->ne[2] << " " << ggtensor->src[0]->ne[3] << "\n"
+            << "    src0->nb:   " << ggtensor->src[0]->nb[0] << " " << ggtensor->src[0]->nb[1] << " " << ggtensor->src[0]->nb[2] << " " << ggtensor->src[0]->nb[3] << "\n"
+            << "    src0->op:   " << ggml_op_name(ggtensor->src[0]->op) << "\n"
+            << "    src0->data: " << ggtensor->src[0]->data << "\n";
     }
     std::cerr << "  src1: " << ggtensor->src[1] << "\n";
     if(ggtensor->src[1] != nullptr) {
@@ -138,15 +139,17 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
             << "    src1->type: " << ggml_type_name(ggtensor->src[1]->type) << "\n"
             << "    src1->ne: " << ggtensor->src[1]->ne[0] << " " << ggtensor->src[1]->ne[1] << " " << ggtensor->src[1]->ne[2] << " " << ggtensor->src[1]->ne[3] << "\n"
             << "    src1->nb: " << ggtensor->src[1]->nb[0] << " " << ggtensor->src[1]->nb[1] << " " << ggtensor->src[1]->nb[2] << " " << ggtensor->src[1]->nb[3] << "\n"
-            << "    src1->op: " << ggml_op_name(ggtensor->src[1]->op) << "\n";
+            << "    src1->op: " << ggml_op_name(ggtensor->src[1]->op) << "\n"
+            << "    src1->data: " << ggtensor->src[1]->data << "\n";
     }
-    std::cerr << "view_src: " << ggtensor->view_src << "\n";
+    std::cerr << "  view_src: " << ggtensor->view_src << "\n";
     if(ggtensor->view_src != nullptr) {
         std::cerr << "    view_src->name: " << ggtensor->view_src->name << "\n"
             << "    view_src->type: " << ggml_type_name(ggtensor->view_src->type) << "\n"
             << "    view_src->ne: " << ggtensor->view_src->ne[0] << " " << ggtensor->view_src->ne[1] << " " << ggtensor->view_src->ne[2] << " " << ggtensor->view_src->ne[3] << "\n"
             << "    view_src->nb: " << ggtensor->view_src->nb[0] << " " << ggtensor->view_src->nb[1] << " " << ggtensor->view_src->nb[2] << " " << ggtensor->view_src->nb[3] << "\n"
-            << "    view_src->op: " << ggml_op_name(ggtensor->view_src->op) << "\n";
+            << "    view_src->op: " << ggml_op_name(ggtensor->view_src->op) << "\n"
+            << "    view_src->data: " << ggtensor->view_src->data << "\n";
     }
 }
 
@@ -675,7 +678,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         }
 
         auto res = ttnn::permute(*t, permute_tt);
-        return std::make_shared<tt::tt_metal::Tensor>(res);
+        return std::make_shared<tt::tt_metal::Tensor>(std::move(res));
     }
 
     if(TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra; meta != nullptr && meta->tensor != nullptr) {
@@ -1587,10 +1590,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         return;
     }
 
-    // std::cout << "Writing to tensor with address: " << tensor->data << std::endl;
-
     // TODO: Support for FP32 on Wormhole
-    tt::ARCH processor_class = bufctx->device->arch();
 
     // TODO: See if we can use BorrowedStorage to avoid copying the data
     bool source_is_quantized = ggml_is_quantized(ggtype);
@@ -1616,11 +1616,44 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         GGML_ASSERT(false && "Unsupported data type");
     }
 
-    // TODO: Make sure this is correct
     std::vector<uint32_t> shape(GGML_MAX_DIMS, 1);
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         // GGML stores the shape in reverse order
         shape[i] = tensor->ne[GGML_MAX_DIMS - i - 1];
+    }
+
+    std::optional<std::array<int64_t, GGML_MAX_DIMS>> permute;
+    // In case GGML sent us a non-contiguous tensor, we need to permute it to make it contiguous
+    // We don't care about reshape as that doesn't make a difference in row-major layout
+    // TODO: This code does not handle yucky cases like stries of [4, 8, 0, 0] but I assume GGML
+    // is decent enough to not send us such tensors
+    if(!ggml_is_contiguous(tensor)) {
+        // Look at ne (aka strides) and figure out the real underlying shape
+        std::array<std::pair<uint64_t, int>, GGML_MAX_DIMS> strides;
+        for(int i = 0; i < GGML_MAX_DIMS; i++) {
+            strides[i] = {tensor->nb[i], i};
+        }
+        std::sort(strides.begin(), strides.end(), [](const auto& a, const auto& b) {
+            return a.first < b.first;
+        });
+
+        std::array<std::pair<uint64_t, int>, GGML_MAX_DIMS> s;
+        for(int i = 0; i < GGML_MAX_DIMS; i++) {
+            s[i] = {tensor->ne[i], strides[i].second};
+        }
+        std::sort(s.begin(), s.end(), [](const auto& a, const auto& b) {
+            return a.second < b.second;
+        });
+        for(int i = 0; i < GGML_MAX_DIMS; i++) {
+            shape[GGML_MAX_DIMS - i - 1] = s[i].first;
+        }
+
+        // Now we can figure out the permutation that we need to apply
+        std::array<int64_t, GGML_MAX_DIMS> perm;
+        for(int i = 0; i < GGML_MAX_DIMS; i++) {
+            perm[strides[i].second] = i;
+        }
+        permute = perm;
     }
 
     tt::tt_metal::Tensor t(std::move(storage), ttnn::Shape(shape)
@@ -1630,13 +1663,18 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     // GGML_ASSERT(!bufctx->tensors.contains(offset));
 
     // TODO: Make sure this is the correct tilize we want to use
+    tt::ARCH processor_class = bufctx->device->arch();
     t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
     if(final_type != t.dtype()) {
         t = ttnn::experimental::typecast(t, final_type);
     }
+    if(permute.has_value()) {
+        t = ttnn::permute(t, permute.value());
+    }
     GGML_ASSERT(t.storage_type() == tt::tt_metal::StorageType::DEVICE || t.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
     GGML_ASSERT(t.dtype() == final_type);
+    GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, t));
     *meta = TensorWithMetadata {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(t)),
         .ggtype = ggtype,
@@ -1685,6 +1723,19 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
         if(do_transpose) {
             *t = ttnn::transpose(*t, -2, -1);
         }
+    }
+    else if (tensor->op == GGML_OP_PERMUTE) {
+        ggml_tensor* src = tensor->src[0];
+        t = realize_ggml_view(src);
+    }
+    else if (tensor->op == GGML_OP_RESHAPE) {
+        ggml_tensor* src = tensor->src[0];
+        while(src->op == GGML_OP_RESHAPE) {
+            src = src->src[0];
+            GGML_ASSERT(src != NULL);
+        }
+        GGML_ASSERT(src != NULL);
+        t = realize_ggml_view(src);
     }
     else {
         t = realize_ggml_view(tensor);
