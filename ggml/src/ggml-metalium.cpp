@@ -2401,7 +2401,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
     std::call_once(once, [&]() {
         // TODO: Support multiple devices (TT supports mesh configuration so it's going to be tricky)
         // but for now we just work on 1 device at a time
-        ggml_backend_metalium_reg_context * ctx = new ggml_backend_metalium_reg_context;
+        static std::unique_ptr<ggml_backend_metalium_reg_context> ctx = std::make_unique<ggml_backend_metalium_reg_context>();
         // TODO: Opening all device is the easiest way to get things initialized
         // but TTNN devices are mutually exclusive so we will need to lazy initialize them
         // in the future to allow multiple processes to use the same device
@@ -2440,7 +2440,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
         
         reg = ggml_backend_reg {
             /* .interface = */ ggml_backend_metalium_reg_interface,
-            /* .context   = */ ctx
+            /* .context   = */ ctx.get()
         };
     });
     return &reg;
