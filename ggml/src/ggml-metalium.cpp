@@ -1725,10 +1725,14 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
         }
     }
     else if (tensor->op == GGML_OP_PERMUTE) {
+        // DITTO above.
+        // XXX: This only handles the case where the permute is the only view class operation
+        // May broke if there are multiple permutes
         ggml_tensor* src = tensor->src[0];
         t = realize_ggml_view(src);
     }
     else if (tensor->op == GGML_OP_RESHAPE) {
+        // No reason to do actual reshaping as it doesn't make a difference in row-major layout
         ggml_tensor* src = tensor->src[0];
         while(src->op == GGML_OP_RESHAPE) {
             src = src->src[0];
