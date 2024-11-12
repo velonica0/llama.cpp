@@ -674,7 +674,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
 
         std::array<int64_t, GGML_MAX_DIMS> permute_tt;
         for(int i=0;i<GGML_MAX_DIMS;i++) {
-            permute_tt[i] = permute[GGML_MAX_DIMS - i - 1];
+            permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
 
         auto res = ttnn::permute(*t, permute_tt);
@@ -1661,7 +1661,6 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
 
     // I think we can allow this.. right?
     // GGML_ASSERT(!bufctx->tensors.contains(offset));
-
     // TODO: Make sure this is the correct tilize we want to use
     tt::ARCH processor_class = bufctx->device->arch();
     t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
@@ -2098,7 +2097,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // FIXME: Tiny LLaMA generates a [256, 1] tensor during inference. Current rules blocks such tensors from
         //       being executed on TTNN. But TTNN actually just doesn't support tilizing into a tensor where the
         //       last dimension is not aligned. Uncomment this if() and Tiny LLaMA will run (+ the softmax stuff).
-        if(tensor->op != GGML_OP_NONE) {
+        if(tensor->op != GGML_OP_NONE && g_debug_flags.llm_hacks) {
             return true;
         }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
@@ -2191,20 +2190,20 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
 
         ///////////////////////////////////////////////////////////////////////////////////
         // This chunk of operators suffers from accuracy issues. They can be disbaled to run LLM coherently
-        case GGML_OP_ADD:       // Not quite as inaccurate to cause incohorence but still not quite right
-        case GGML_OP_SUB:       // Not quite as inaccurate to cause incohorence but still not quite right
-        case GGML_OP_MUL:       // Not quite as inaccurate to cause incohorence but still not quite right
-            return tensor_supported(src1) && numpy_broadcast_rule(src0, src1) && !g_debug_flags.llm_hacks;
+        case GGML_OP_ADD:
+        case GGML_OP_SUB:
+        case GGML_OP_MUL:
+            return tensor_supported(src1) && numpy_broadcast_rule(src0, src1);
         // DIV does not support broadcasting on TTNN
-        case GGML_OP_DIV:       // Not quite as inaccurate to cause incohorence but still not quite right
-            return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0 && !g_debug_flags.llm_hacks;
+        case GGML_OP_DIV:
+            return tensor_supported(src1) && memcmp(src0->ne, src1->ne, sizeof(src0->ne)) == 0;
 
-        case GGML_OP_MUL_MAT:   // Accuracy issue: Leading to LLM incohorence
-            return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_MUL_MAT:
+            return tensor_supported(src1) && ggml_backend_metalium_can_mul_mat(op);
         // case GGML_OP_SET:       // Accuracy issue: Leading to LLM incohorence. Or the op is not acting as expected. This one is more annoying to test
         //     return tensor_supported(src1) && ggml_backend_metalium_can_set(op) && !g_debug_flags.llm_hacks;
-        case GGML_OP_SOFT_MAX:  // Not quite as inaccurate to cause incohorence but still not quite right
-            return ggml_backend_metalium_can_softmax(op) && !g_debug_flags.llm_hacks;
+        case GGML_OP_SOFT_MAX:
+            return ggml_backend_metalium_can_softmax(op);
         ///////////////////////////////////////////////////////////////////////////////////
         case GGML_OP_GET_ROWS:
             return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
