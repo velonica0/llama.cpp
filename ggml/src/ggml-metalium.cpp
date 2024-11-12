@@ -251,6 +251,11 @@ static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH a
             /*GGML_TYPE_F64 = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_IQ1_M = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_BF16 = */ tt::tt_metal::DataType::BFLOAT16,
+            /*GGML_TYPE_Q4_0_4_4 = */ tt::tt_metal::DataType::INVALID, // Untested from this point on
+            /*GGML_TYPE_Q4_0_4_8 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_Q4_0_8_8 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_TQ1_0   = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_TQ2_0   = */ tt::tt_metal::DataType::INVALID,
         };
         tt::tt_metal::DataType type = table[ggtype];
         return type;
