@@ -2315,10 +2315,10 @@ static const char * ggml_backend_metalium_device_get_description(ggml_backend_de
 static void ggml_backend_metalium_get_memory(ggml_backend_dev_t dev, size_t * total, size_t * free) {
     ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
     size_t num_dram_channels = ctx->device->num_dram_channels();
-    size_t dram_channel_size = ctx->device->dram_size_per_channel();
+    auto stats = ctx->device->get_memory_allocation_statistics(tt::tt_metal::BufferType::DRAM);
 
-    *total = num_dram_channels * dram_channel_size;
-    *free = *total; // TODO: Figure out how to get the free memory
+    *total = stats.total_allocatable_size_bytes * num_dram_channels;
+    *free = stats.total_free_bytes * num_dram_channels;
 }
 
 static enum ggml_backend_dev_type ggml_backend_metalium_get_type(ggml_backend_dev_t dev) {
