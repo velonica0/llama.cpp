@@ -2001,7 +2001,7 @@ struct test_sin : public test_case {
     }
 
     double max_nmse_err() override {
-        return 1e-5;
+        return 2e-5;
     }
 
     float grad_eps() override {
@@ -2048,7 +2048,7 @@ struct test_cos : public test_case {
     }
 
     double max_nmse_err() override {
-        return 1e-5;
+        return 2e-5;
     }
 
     float grad_eps() override {

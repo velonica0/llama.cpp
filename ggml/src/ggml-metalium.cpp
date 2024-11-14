@@ -2323,7 +2323,7 @@ static void ggml_backend_metalium_get_memory(ggml_backend_dev_t dev, size_t * to
 
 static enum ggml_backend_dev_type ggml_backend_metalium_get_type(ggml_backend_dev_t dev) {
     GGML_UNUSED(dev);
-    return GGML_BACKEND_DEVICE_TYPE_GPU; // Do we make it _FULL?
+    return GGML_BACKEND_DEVICE_TYPE_GPU;
 }
 
 static ggml_backend_t ggml_backend_metalium_device_init(ggml_backend_dev_t dev, const char * params) {
@@ -2377,7 +2377,7 @@ static const ggml_backend_device_i ggml_backend_metalium_device_interface = {
     /* .event_synchronize       = */ NULL,
 };
 
-static std::string identidy_tensotrrent_device(const ttnn::Device* device)
+static std::string identify_tensotrrent_device(const ttnn::Device* device)
 {
     auto grid_size = device->compute_with_storage_grid_size();
     // TODO: Support mesh configurations
@@ -2401,6 +2401,11 @@ static std::vector<std::unique_ptr<ggml_backend_device>> g_backend_device_holder
 static std::vector<std::unique_ptr<ggml_backend_metalium_device_context>> g_backend_device_context_holder;
 GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
 {
+    if(getenv("TT_METAL_HOME") == NULL || getenv("ARCH_NAME") == NULL) {
+        tt::log_fatal(tt::LogType::LogAlways, "TT_METAL_HOME and ARCH_NAME environment variables must be set to use the Metalium backend");
+        abort();
+    }
+
     static ggml_backend_reg reg;
     static std::once_flag once;
     std::call_once(once, [&]() {
@@ -2430,7 +2435,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
             dev_ctx->device = device;
             dev_ctx->device_id = device_id;
             dev_ctx->name = "METALIUM" + std::to_string(device_id);
-            dev_ctx->description = identidy_tensotrrent_device(dev_ctx->device);
+            dev_ctx->description = identify_tensotrrent_device(dev_ctx->device) + (dev_ctx->device->is_mmio_capable() ? " [Local]" : " [Remote]");
 
             // FIXME: Release the device context when appropriate
             ggml_backend_dev_t dev = new ggml_backend_device {
