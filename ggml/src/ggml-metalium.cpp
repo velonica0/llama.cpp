@@ -13,6 +13,7 @@
 #include "impl/dispatch/command_queue.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/data_movement/reshape_on_device/reshape.hpp"
+#include "ttnn/operations/data_movement/untilize_with_unpadding/untilize_with_unpadding.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -119,6 +120,7 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
         << "  ne: " << ggtensor->ne[0] << " " << ggtensor->ne[1] << " " << ggtensor->ne[2] << " " << ggtensor->ne[3] << "\n"
         << "  nb: " << ggtensor->nb[0] << " " << ggtensor->nb[1] << " " << ggtensor->nb[2] << " " << ggtensor->nb[3] << "\n"
         << "  op: " << ggml_op_name(ggtensor->op) << "\n"
+        << "  data: " << ggtensor->data << "\n"
         << "  src0: " << ggtensor->src[0] << "\n";
     if(ggtensor->src[0] != nullptr) {
         std::cerr << "    src0->name: " << ggtensor->src[0]->name << "\n"
@@ -484,11 +486,6 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    if(node->ne[0] % tt::constants::TILE_WIDTH == 0 && node->ne[1] % tt::constants::TILE_HEIGHT == 0 &&
-        tensor.shape()[2] >= tt::constants::TILE_HEIGHT && tensor.shape()[3] >= tt::constants::TILE_WIDTH) {
-        // Fast path. tensor.reshape() can reshape if both the last two dimensions are tile aligned
-        return tensor.reshape(ttnn::SimpleShape(target_shape));
-    }
     // TODO: Remove these checks. see https://github.com/tenstorrent/tt-metal/issues/14922
     //                                               vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
     if(tensor.shape()[-1] == (uint32_t)node->ne[0] && tensor.shape()[-2] % 32 == 0 && node->ne[2] % 32 == 0) {
@@ -496,15 +493,8 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
     }
 
-    // SLOW path. Copy the tensor to the CPU, unpad it, reshape it, and tileize it back
-    ttnn::SimpleShape begin({0, 0, 0, 0});
-    ttnn::SimpleShape end = tensor.shape().logical_shape();
-
-    tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu().unpad(begin, end);
-    tt::tt_metal::Tensor reshaped = row_major_tensor.reshape(ttnn::SimpleShape(target_shape));
-    tt::tt_metal::Tensor ret = ttnn::tilize_with_zero_padding(reshaped.to(tensor.device()));
-    return ret;
-    
+    // This MAY trigger a slow path.
+    return ttnn::reshape(tensor, ttnn::SimpleShape(target_shape));    
 }
 
 static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::Device* device, const struct ggml_tensor * node)
@@ -631,12 +621,12 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             res = reshape_tt_tensor_into_ggml(*parent, tensor);
         }
         // Trying to convert a flat 1D tensor to N-D tensor (potentially with an offset)
-        else if(ggml_n_dims(src0) == 1) {
+        else if(ggml_n_dims(src0) == 1 && ggml_n_dims(tensor) > 1) {
             // slow: grab the source tensor and unpad it
             ttnn::SimpleShape start{0, 0, 0, uint32_t(offset / ggml_type_size(src0->type))};
             auto dst_volume = ggml_nelements(tensor);
             ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + start[3]});
-            auto t = parent->cpu().to(tt::tt_metal::Layout::ROW_MAJOR).unpad(start, end);
+            auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
             res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
         }
         // The fast path, this is what TTNN is designed for
@@ -648,7 +638,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         // Unpad on the CPU and then pad back on the device
         else {
             // THIS is EXTREMELY SLOW. But it works
-            tt::tt_metal::Tensor tmp = parent->cpu().to(tt::tt_metal::Layout::ROW_MAJOR).unpad(ttnn::SimpleShape(start), ttnn::SimpleShape(end));
+            tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(ttnn::SimpleShape(start), ttnn::SimpleShape(end));
             res = ttnn::tilize_with_zero_padding(tmp.to(bufctx->device));
         }
         return std::make_shared<tt::tt_metal::Tensor>(res);
@@ -659,12 +649,13 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
     }
     if(op == GGML_OP_PERMUTE) {
         std::array<int32_t, GGML_MAX_DIMS> permute;
-        memcpy(permute.data(), tensor->op_params, sizeof(int32_t) * GGML_MAX_DIMS);
+        memcpy(permute.data(), tensor->op_params, sizeof(permute));
 
         int ndiff = 0;
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             ndiff += permute[i] != i;
         }
+        GGML_ASSERT(ndiff != 1); // Logically impossible
 
         auto t = realize_ggml_view(src0);
         if(ndiff == 0) {
@@ -2091,17 +2082,17 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                return tensor->ne[0] % 2 == 0;
+                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;
             case tt::tt_metal::DataType::UINT8:
-                return tensor->ne[0] % 4 == 0;
+                return tensor->ne[0] % 4 == 0 && tensor->ne[0] != 0;
             case tt::tt_metal::DataType::INVALID:
                 GGML_ASSERT(false && "Unsupported data type");
                 break;
             default:
-                return tensor->ne[0] % 32 == 0;
+                return tensor->ne[0] % 32 == 0 && tensor->ne[0] != 0;
         }
         GGML_UNREACHABLE();
     };
@@ -2423,12 +2414,12 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
             ttnn::Device* device = nullptr;
             if(g_device_map.contains(device_id)) {
                 device = g_device_map[device_id];
+                GGML_ASSERT(device != nullptr);
             } else {
                 device = &ttnn::device::open_device(device_id);
                 ttnn::enable_program_cache(*device);
                 g_device_map[device_id] = device;
             }
-            GGML_ASSERT(device != nullptr);
             // Limit device support to the ones I own
             GGML_ASSERT(device->arch() == tt::ARCH::GRAYSKULL || device->arch() == tt::ARCH::WORMHOLE_B0);
 
