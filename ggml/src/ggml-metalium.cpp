@@ -68,7 +68,6 @@ struct ggml_backend_metalium_device_context {
     int device_id = -1;
     std::string name;
     std::string description;
-    ggml_backend_dev_t* ggml_backend_dev_interface = nullptr;
 };
 
 struct ggml_backend_metalium_reg_context {
@@ -364,7 +363,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     ttnn::SimpleShape padded_shape = tensor.shape().padded_shape();
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16>);
 
-    tt::tt_metal::Tensor row_major_tensor = tensor.cpu().to(tt::tt_metal::Layout::ROW_MAJOR);
+    tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
     GGML_ASSERT(row_major_tensor.storage_type() == StorageType::OWNED or row_major_tensor.storage_type() == StorageType::BORROWED);
     GGML_ASSERT(std::holds_alternative<OwnedStorage>(row_major_tensor.storage()) || std::holds_alternative<BorrowedStorage>(row_major_tensor.storage()));
 
@@ -623,11 +622,18 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         // Trying to convert a flat 1D tensor to N-D tensor (potentially with an offset)
         else if(ggml_n_dims(src0) == 1 && ggml_n_dims(tensor) > 1) {
             // slow: grab the source tensor and unpad it
-            ttnn::SimpleShape start{0, 0, 0, uint32_t(offset / ggml_type_size(src0->type))};
+            uint32_t offset_elements = offset / ggml_type_size(src0->type);
+            ttnn::SimpleShape start{0, 0, 0, offset_elements};
             auto dst_volume = ggml_nelements(tensor);
-            ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + start[3]});
-            auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
-            res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
+            ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
+            tt::tt_metal::Tensor res;
+            if(offset_elements == 0) {
+                res = reshape_tt_tensor_into_ggml(*parent, tensor);
+            }
+            else {
+                auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
+                res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
+            }
         }
         // The fast path, this is what TTNN is designed for
         else if(dst_size[0] % tt::constants::TILE_WIDTH == 0 && dst_size[1] % tt::constants::TILE_HEIGHT == 0 &&
@@ -931,25 +937,6 @@ static void ggml_backend_metalium_bin_op(ggml_backend_metalium_context * ctx, st
         .ggtype = dst->type,
         .bufctx = meta0->bufctx
     };
-}
-
-static void ggml_backend_metalium_transpose(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
-{
-    GGML_UNUSED(ctx);
-    GGML_METALIUM_OP_SANITY_CHECK(dst);
-    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
-
-    auto t = realize_ggml_view(dst->src[0]);
-    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
-
-    // std::cout << "GGML wants reshape to: " << dst->ne[0] << " " << dst->ne[1] << " " << dst->ne[2] << " " << dst->ne[3] << std::endl;
-
-    *dst_meta = {
-        .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::transpose(*t, -2, -1)),
-        .ggtype = dst->type,
-        .bufctx = ((TensorWithMetadata*)dst->src[0]->extra)->bufctx
-    };
-    // std::cout << "TT wants reshape to: " << dst_meta->tensor->shape() << std::endl;
 }
 
 static bool ggml_backend_metalium_can_set(const struct ggml_tensor * dst)
@@ -1643,7 +1630,6 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
 
     // I think we can allow this.. right?
     // GGML_ASSERT(!bufctx->tensors.contains(offset));
-    // TODO: Make sure this is the correct tilize we want to use
     tt::ARCH processor_class = bufctx->device->arch();
     t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
