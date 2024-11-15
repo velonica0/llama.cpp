@@ -7,6 +7,7 @@
 #include "ggml-backend.h"
 #include "ggml.h"
 #include "ggml-impl.h"
+#include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
 #include "host_api.hpp"
@@ -459,8 +460,8 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     if (need_quantized_conversion) {
         GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16) && "This block should only reach for quantized data types or FP16");
         GGML_ASSERT(intermid_buf.size() != 0);
-        const ggml_type_traits* trait = ggml_get_type_traits(dst_ggtype);
-        GGML_ASSERT(trait->to_float != NULL);
+        const ggml_type_traits_cpu* trait = ggml_get_type_traits_cpu(dst_ggtype);
+        GGML_ASSERT(trait->from_float != NULL);
         trait->from_float((float*)intermid, dst, shape.volume());
     }
 }
