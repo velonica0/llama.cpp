@@ -627,14 +627,8 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             ttnn::SimpleShape start{0, 0, 0, offset_elements};
             auto dst_volume = ggml_nelements(tensor);
             ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
-            tt::tt_metal::Tensor res;
-            if(offset_elements == 0) {
-                res = reshape_tt_tensor_into_ggml(*parent, tensor);
-            }
-            else {
-                auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
-                res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
-            }
+            auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
+            res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
         }
         // The fast path, this is what TTNN is designed for
         else if(dst_size[0] % tt::constants::TILE_WIDTH == 0 && dst_size[1] % tt::constants::TILE_HEIGHT == 0 &&
