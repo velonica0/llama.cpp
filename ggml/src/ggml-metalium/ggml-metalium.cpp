@@ -205,10 +205,6 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
 // Backend internal state tracking because GGML API does not allow
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// maps device id to device
-static std::map<int, ttnn::Device*> g_device_map;
-static std::map<int, ggml_backend_t> g_backend_map;
-
 // Maintain all base addresses are unique
 // TODO: Do we still need this since we already removed the virtual address mapping hack?
 static size_t g_metalium_base_offset = 0;
@@ -2204,33 +2200,16 @@ static ggml_guid_t ggml_backend_metalium_guid(void) {
     return &guid;
 }
 
-ggml_backend_t ggml_backend_metalium_init(int device_id) {
+static ggml_backend_t ggml_backend_metalium_init(ggml_backend_metalium_device_context* dev_ctx) {
+    int device_id = dev_ctx->device_id;
+    ttnn::Device* device = dev_ctx->device;
     GGML_ASSERT(device_id >= 0 && (size_t)device_id < tt::tt_metal::GetNumAvailableDevices());
-    // TODO: Support multiple devices (do we even need to? TT supports merging diverse devices into a single device, at least the API suggests that)
-    static std::once_flag once;
-    std::call_once(once, [](){
-        tt::tt_metal::detail::EnablePersistentKernelCache();
-    });
+    GGML_ASSERT(device != nullptr);
 
-    auto it = g_backend_map.find(device_id);
-    if (it != g_backend_map.end()) {
-        return it->second;
-    }
-
-    ttnn::Device* device = nullptr;
-    if(g_device_map.contains(device_id)) {
-        device = g_device_map[device_id];
-    }
-    else {
-        device = &ttnn::device::open_device(device_id);
-        ttnn::enable_program_cache(*device);
-        // store the device in the global map because tensor creation uses device ID but Metalium disallows opening the same device twice
-        g_device_map[device_id] = device;
-    }
     ggml_backend_metalium_context * ctx = new ggml_backend_metalium_context {
         /* device            = */ device,
         /* device_id         = */ device_id,
-        /* name              = */ "METALIUM" + std::to_string(device_id),
+        /* name              = */ dev_ctx->name,
     };
 
     ggml_backend_t backend = new ggml_backend {
@@ -2239,7 +2218,6 @@ ggml_backend_t ggml_backend_metalium_init(int device_id) {
         /* .device    = */ ggml_backend_reg_dev_get(ggml_backend_metalium_reg(), device_id),
         /* .context   = */ ctx
     };
-    g_backend_map[device_id] = backend;
     return backend;
 }
 
@@ -2297,7 +2275,7 @@ static enum ggml_backend_dev_type ggml_backend_metalium_get_type(ggml_backend_de
 static ggml_backend_t ggml_backend_metalium_device_init(ggml_backend_dev_t dev, const char * params) {
     GGML_UNUSED(params);
     ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
-    ggml_backend_t backend = ggml_backend_metalium_init(ctx->device_id);
+    ggml_backend_t backend = ggml_backend_metalium_init(ctx);
     GGML_ASSERT(backend != NULL);
     return backend;
 }
@@ -2377,6 +2355,7 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
     static ggml_backend_reg reg;
     static std::once_flag once;
     std::call_once(once, [&]() {
+        tt::tt_metal::detail::EnablePersistentKernelCache();
         // TODO: Support multiple devices (TT supports mesh configuration so it's going to be tricky)
         // but for now we just work on 1 device at a time
         static std::unique_ptr<ggml_backend_metalium_reg_context> ctx = std::make_unique<ggml_backend_metalium_reg_context>();
@@ -2388,15 +2367,8 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
         ctx->devices.reserve(num_devices);
         for(size_t device_id = 0; device_id < num_devices; device_id++) {
             ggml_backend_metalium_device_context * dev_ctx = new ggml_backend_metalium_device_context;
-            ttnn::Device* device = nullptr;
-            if(g_device_map.contains(device_id)) {
-                device = g_device_map[device_id];
-                GGML_ASSERT(device != nullptr);
-            } else {
-                device = &ttnn::device::open_device(device_id);
-                ttnn::enable_program_cache(*device);
-                g_device_map[device_id] = device;
-            }
+            ttnn::Device* device = &ttnn::device::open_device(device_id);
+            ttnn::enable_program_cache(*device);
             // Limit device support to the ones I own
             GGML_ASSERT(device->arch() == tt::ARCH::GRAYSKULL || device->arch() == tt::ARCH::WORMHOLE_B0);
 

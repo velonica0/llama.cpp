@@ -11,8 +11,6 @@ extern "C" {
 #endif
 
 // backend API
-// TODO: Need a way to specify we want a meshed device (TT has native support for combining multiple devices)
-GGML_API ggml_backend_t ggml_backend_metalium_init(int device_id);
 
 GGML_API bool ggml_backend_is_metalium(ggml_backend_t backend);
 
