@@ -2347,14 +2347,13 @@ static std::vector<std::unique_ptr<ggml_backend_device>> g_backend_device_holder
 static std::vector<std::unique_ptr<ggml_backend_metalium_device_context>> g_backend_device_context_holder;
 GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
 {
-    if(getenv("TT_METAL_HOME") == NULL || getenv("ARCH_NAME") == NULL) {
-        tt::log_fatal(tt::LogType::LogAlways, "TT_METAL_HOME and ARCH_NAME environment variables must be set to use the Metalium backend");
-        abort();
-    }
-
     static ggml_backend_reg reg;
     static std::once_flag once;
     std::call_once(once, [&]() {
+        if(getenv("TT_METAL_HOME") == NULL || getenv("ARCH_NAME") == NULL) {
+            tt::log_fatal(tt::LogType::LogAlways, "TT_METAL_HOME and ARCH_NAME environment variables must be set to use the Metalium backend");
+            abort();
+        }
         tt::tt_metal::detail::EnablePersistentKernelCache();
         // TODO: Support multiple devices (TT supports mesh configuration so it's going to be tricky)
         // but for now we just work on 1 device at a time

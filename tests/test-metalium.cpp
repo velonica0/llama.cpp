@@ -320,12 +320,10 @@ int main()
 
     ggml_backend_t metalium = NULL;
     for (size_t i = 0; i < ggml_backend_reg_count(); i++) {
-        ggml_backend_reg_t reg = ggml_backend_reg_get(i);
-        if (std::strcmp(ggml_backend_reg_name(reg), "Metalium") == 0) {
-            ggml_backend_reg_t reg = ggml_backend_reg_get(i);
-            metalium = ggml_backend_dev_init(ggml_backend_reg_dev_get(reg, 0), NULL);
-            break;
-        }
+        ggml_backend_reg_t reg = ggml_backend_reg_by_name("Metalium");
+        GGML_ASSERT(ggml_backend_reg_dev_count(reg) > 0);
+        metalium = ggml_backend_dev_init(ggml_backend_reg_dev_get(reg, 0), NULL);
+        break;
     }
     if(metalium == NULL) {
         printf("Cannot find Metalium backend\n");
