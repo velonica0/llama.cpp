@@ -56,6 +56,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -1735,11 +1736,8 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
 {
     ggml_backend_metalium_buffer_context * bufctx = (ggml_backend_metalium_buffer_context *)buffer->context;
 
-    // Tensors can be initialized multiple times. We need overwrite the old metadata (and potentially free the old TTNN tensor)
-    if(tensor->extra == NULL) {
-        bufctx->metadata_to_free.push_back(std::make_unique<TensorWithMetadata>());
-        tensor->extra = bufctx->metadata_to_free.back().get();
-    }
+    bufctx->metadata_to_free.push_back(std::make_unique<TensorWithMetadata>());
+    tensor->extra = bufctx->metadata_to_free.back().get();
     TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
     *meta = {
         .tensor = nullptr,
@@ -1791,6 +1789,11 @@ ggml_backend_metalium_buffer_cpy_tensor(ggml_backend_buffer_t buffer,
     return true;
 }
 
+static void ggml_backend_metalium_buffer_reset(ggml_backend_buffer_t buffer) {
+    ggml_backend_metalium_buffer_context * bufctx = (ggml_backend_metalium_buffer_context *)buffer->context;
+    bufctx->metadata_to_free.clear();
+}
+
 static struct ggml_backend_buffer_i ggml_backend_metalium_buffer_interface = {
     /* .free_buffer     = */ ggml_backend_metalium_buffer_free_buffer,
     /* .get_base        = */ ggml_backend_metalium_buffer_get_base,
@@ -1800,7 +1803,7 @@ static struct ggml_backend_buffer_i ggml_backend_metalium_buffer_interface = {
     /* .get_tensor      = */ ggml_backend_metalium_buffer_get_tensor,
     /* .cpy_tensor      = */ ggml_backend_metalium_buffer_cpy_tensor,
     /* .clear           = */ ggml_backend_metalium_buffer_clear,
-    /* .reset           = */ nullptr,
+    /* .reset           = */ ggml_backend_metalium_buffer_reset,
 };
 
 
