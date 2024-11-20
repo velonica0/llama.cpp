@@ -1707,7 +1707,7 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     }
     GGML_ASSERT(t->layout() == tt::tt_metal::Layout::TILE);
     if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 || t->dtype() != tt::tt_metal::DataType::FLOAT32) {
-        *t = ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16);
+        t = std::make_shared<tt::tt_metal::Tensor>(ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16));
     }
 
     // TODO: Proper handling of data types
@@ -1737,8 +1737,8 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
     ggml_backend_metalium_buffer_context * bufctx = (ggml_backend_metalium_buffer_context *)buffer->context;
 
     bufctx->metadata_to_free.push_back(std::make_unique<TensorWithMetadata>());
-    tensor->extra = bufctx->metadata_to_free.back().get();
-    TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
+    TensorWithMetadata* meta = bufctx->metadata_to_free.back().get();
+    tensor->extra = meta;
     *meta = {
         .tensor = nullptr,
         .ggtype = GGML_TYPE_COUNT,
