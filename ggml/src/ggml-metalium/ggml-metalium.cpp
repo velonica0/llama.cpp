@@ -484,14 +484,6 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    // TODO: Remove these checks. see https://github.com/tenstorrent/tt-metal/issues/14922
-    //                                               vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
-    if(tensor.shape()[-1] == (uint32_t)node->ne[0] && tensor.shape()[-2] % 32 == 0 && node->ne[2] % 32 == 0) {
-        // Fast path. reshape_on_device() can reshape is both the last dimension is the same 
-        return ttnn::reshape_on_device(tensor, ttnn::SimpleShape(target_shape));
-    }
-
-    // This MAY trigger a slow path.
     return ttnn::reshape(tensor, ttnn::SimpleShape(target_shape));    
 }
 
@@ -2385,7 +2377,6 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
             dev_ctx->name = "METALIUM" + std::to_string(device_id);
             dev_ctx->description = identify_tensotrrent_device(dev_ctx->device) + (dev_ctx->device->is_mmio_capable() ? " [Local]" : " [Remote]");
 
-            // FIXME: Release the device context when appropriate
             ggml_backend_dev_t dev = new ggml_backend_device {
                 .iface = ggml_backend_metalium_device_interface,
                 .reg = &reg,
