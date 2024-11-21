@@ -614,11 +614,21 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         else if(ggml_n_dims(src0) == 1 && ggml_n_dims(tensor) > 1) {
             // slow: grab the source tensor and unpad it
             uint32_t offset_elements = offset / ggml_type_size(src0->type);
-            ttnn::SimpleShape start{0, 0, 0, offset_elements};
+            
             auto dst_volume = ggml_nelements(tensor);
-            ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
-            auto t = ttnn::untilize(*parent).cpu().unpad(start, end);
-            res = reshape_host_tt_tensor_into_ggml(t, parent->device(), tensor);
+            if(offset_elements % tt::constants::TILE_WIDTH == 0 && dst_volume % tt::constants::TILE_HEIGHT == 0) {
+                std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
+                auto t = ttnn::slice(*parent, start, end, step, tt::tt_metal::MemoryConfig());
+                res = reshape_tt_tensor_into_ggml(t, tensor);
+            }
+            else {
+                // THIS is EXTREMELY SLOW. But it works
+                ttnn::SimpleShape start{0, 0, 0, offset_elements};
+                ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
+                tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(start, end);
+                tmp = ttnn::tilize_with_zero_padding(tmp.to(bufctx->device));
+                res = reshape_host_tt_tensor_into_ggml(tmp, parent->device(), tensor);
+            }
         }
         // The fast path, this is what TTNN is designed for
         else if(dst_size[0] % tt::constants::TILE_WIDTH == 0 && dst_size[1] % tt::constants::TILE_HEIGHT == 0 &&
