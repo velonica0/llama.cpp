@@ -400,7 +400,8 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     }
     // Just putting the integer types here to remind me TT tensors can have integer types
     // But not supported on Grayskull.
-    else if ((std::is_same_v<SrcType, bfloat16> && dst_ggtype == GGML_TYPE_BF16) ||
+    else if ((std::is_same_v<SrcType, float> && dst_ggtype == GGML_TYPE_F32) ||
+             (std::is_same_v<SrcType, bfloat16> && dst_ggtype == GGML_TYPE_BF16) ||
              (std::is_same_v<SrcType, int32_t> && dst_ggtype == GGML_TYPE_I32) ||
              (std::is_same_v<SrcType, int16_t> && dst_ggtype == GGML_TYPE_I16) ||
              (std::is_same_v<SrcType, int8_t> && dst_ggtype == GGML_TYPE_I8)) {
@@ -1454,8 +1455,6 @@ static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * 
 
     auto src0 = realize_ggml_view(dst->src[0]);
     auto src1 = realize_ggml_view(dst->src[1]);
-
-    std::cout << "src0: " << src0->shape() << " src1: " << src1->shape() << std::endl;
 
     auto res = ttnn::outer(*src0, *src1);
     *dst_meta = {
