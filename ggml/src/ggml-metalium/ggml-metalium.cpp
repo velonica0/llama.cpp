@@ -55,6 +55,7 @@
 
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -180,6 +181,7 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* 
 struct ggml_backend_metalium_debug_flags {
     bool print_rejected_ops = false;        // Print ops that the backend rejects
     bool print_view = false;                // Print details when a VIEW op is being realized
+    bool cache_mm_transpose = false;        // Cache the transpose kernel for matmul
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -197,7 +199,8 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
 
     return ggml_backend_metalium_debug_flags {
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
-        .print_view = func("GGML_METALIUM_PRINT_VIEW")
+        .print_view = func("GGML_METALIUM_PRINT_VIEW"),
+        .cache_mm_transpose = func("GGML_METALIUM_CACHE_MM_TRANSPOSE"), // GGML uses pre-transposed weights. Remove this flag when TT implements it
     };
 }();
 
@@ -768,7 +771,21 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
         };
     }
     else {
-        auto aT = ttnn::transpose(a, -2, -1);
+        tt::tt_metal::Tensor aT;
+        if(src0->buffer->usage == GGML_BACKEND_BUFFER_USAGE_WEIGHTS && g_debug_flags.cache_mm_transpose) {
+            static std::unordered_map<std::string, tt::tt_metal::Tensor> transposed_weights;
+            auto it = transposed_weights.find(src0->name);
+            if(it == transposed_weights.end()) {
+                aT = ttnn::transpose(a, -2, -1);
+                transposed_weights[src0->name] = aT;
+            }
+            else {
+                aT = it->second;
+            }
+        }
+        else {
+            aT = ttnn::transpose(a, -2, -1);
+        }
         // TODO: Ask TT to support multiplication of pre-transposed tensors. Calling transpose here is inefficient
         // https://github.com/tenstorrent/tt-metal/issues/9709
         ttnn::operations::matmul::Matmul cfg = ttnn::operations::matmul::Matmul{
