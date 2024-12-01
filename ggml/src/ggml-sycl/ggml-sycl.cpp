@@ -3447,8 +3447,15 @@ static void ggml_sycl_mul_mat(ggml_backend_sycl_context & ctx, const ggml_tensor
         use_dequantize_mul_mat_vec = use_dequantize_mul_mat_vec && !use_mul_mat_vec_q;
 
     if (!split && src0->type == GGML_TYPE_F16 && ggml_is_permuted(src0) && ggml_is_permuted(src1) && src1->ne[1] == 1) {
-        // KQ single-batch
-        ggml_sycl_mul_mat_vec_p021(ctx, src0, src1, dst);
+        // TODO: Refactor and cleanup of mul mat dispatching.
+        if (src0->ne[3] == 1 && src1->ne[3] == 1) {
+            // KQ single-batch
+            // mmv p021 was specific for these dimensions
+            ggml_sycl_mul_mat_vec_p021(ctx, src0, src1, dst);
+        } else {
+            // The kernel from the if path is faster for that specific case, but does not support all mul mats.
+            ggml_sycl_mul_mat_batched_sycl(ctx, src0, src1, dst);
+        }
     } else if (!split && src0->type == GGML_TYPE_F16 && !ggml_is_contiguous(src0) && !ggml_is_transposed(src1) && src1->ne[1] == 1) {
         // KQV single-batch
         ggml_sycl_mul_mat_vec_nc(ctx, src0, src1, dst);
@@ -4350,10 +4357,6 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
                 if (op->op == GGML_OP_MUL_MAT) {
                     a = op->src[0];
                     b = op->src[1];
-                    if (ggml_is_permuted(a) || ggml_is_permuted(b)) {
-                        // TODO: fix like https://github.com/ggerganov/llama.cpp/pull/10021
-                        return false;
-                    }
                 } else {
                     a = op->src[2];
                     b = op->src[1];
@@ -4490,7 +4493,7 @@ static bool ggml_backend_sycl_device_supports_buft(ggml_backend_dev_t dev, ggml_
 static int64_t get_op_batch_size(const ggml_tensor * op) {
     switch (op->op) {
         case GGML_OP_GET_ROWS:
-            return op->ne[1]; // this will increse the speed of prefill in test
+            return 0;
         case GGML_OP_MUL_MAT:
             return op->ne[1];
         case GGML_OP_MUL_MAT_ID:
@@ -4641,16 +4644,17 @@ ggml_backend_reg_t ggml_backend_sycl_reg() {
                 dev_ctx->description = prop.get_name();
 
                 ggml_backend_dev_t dev = new ggml_backend_device {
-                    /* .interface = */ ggml_backend_sycl_device_interface,
-                    /* .reg       = */ &reg,
-                    /* .context   = */ dev_ctx
+                    /* .iface       = */ ggml_backend_sycl_device_interface,
+                    /* .reg         = */ &reg,
+                    /* .context     = */ dev_ctx
                 };
                 ctx->devices.push_back(dev);
             }
 
             reg = ggml_backend_reg {
-                /* .interface = */ ggml_backend_sycl_reg_interface,
-                /* .context   = */ ctx
+                /* .api_version = */ GGML_BACKEND_API_VERSION,
+                /* .iface       = */ ggml_backend_sycl_reg_interface,
+                /* .context     = */ ctx
             };
         }
 
@@ -4682,3 +4686,4 @@ ggml_backend_t ggml_backend_sycl_init(int device) {
     return sycl_backend;
 }
 
+GGML_BACKEND_DL_IMPL(ggml_backend_sycl_reg)

@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -1664,6 +1665,7 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     // std::cout << "  TTNN thinks shape: " << shape << std::endl;
     std::shared_ptr<tt::tt_metal::Tensor> t;
     if(tensor->op == GGML_OP_TRANSPOSE) {
+        // std::cout << "Reading out to transpose tensor" << std::endl;
         // HACK: Yeah this one is stupid. GGML as a row-major framework uses lazy evaluation for transpose.
         //      Which means if we try to copy a transposed tensor. We should not transpose it. Else the other
         //      backend would transpose it again.
@@ -2056,11 +2058,18 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         }
         // TTNN requires the tensor to be 4-byte aligned and all quantized tensors must be a multiple of 32
 
+        // HACK: later GGML contains an absurd code that views into [1, embed, 1, 1] then tranpose to [embed, 1, ,1 ,1]
+        //       which is a waste of time on TTNN. We mush allow the view op to pass then perform the correct view
+        //       ignoring the transpose.
+        if(tensor->op == GGML_OP_VIEW) {
+            return true;
+        }
+
         tt::tt_metal::DataType tt_type = ggml2tt_type(tensor->type, ctx->device->arch());
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
+                // return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;
@@ -2075,14 +2084,6 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         GGML_UNREACHABLE();
     };
 
-    // std::cout << "Checking if op is supported: " << ggml_op_desc(op) << std::endl;
-    // std::cout << "Output tensor details:\n"
-    //     << "  data: " << op->data << "\n"
-    //     << "  ne: " << op->ne[0] << " " << op->ne[1] << " " << op->ne[2] << " " << op->ne[3] << "\n"
-    //     << "  nb: " << op->nb[0] << " " << op->nb[1] << " " << op->nb[2] << " " << op->nb[3] << "\n"
-    //     << "  type: " << ggml_type_name(op->type) << "\n"
-    //     << "  view_src: " << op->view_src << "\n"
-    //     << "\n";
     if(!tensor_supported(op)) {
         return false;
     }
@@ -2350,7 +2351,7 @@ static std::string identify_tensotrrent_device(const ttnn::Device* device)
 
 static std::vector<std::unique_ptr<ggml_backend_device>> g_backend_device_holder;
 static std::vector<std::unique_ptr<ggml_backend_metalium_device_context>> g_backend_device_context_holder;
-GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
+GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
 {
     static ggml_backend_reg reg;
     static std::once_flag once;
@@ -2392,8 +2393,9 @@ GGML_API ggml_backend_reg_t ggml_backend_metalium_reg()
         }
         
         reg = ggml_backend_reg {
-            /* .interface = */ ggml_backend_metalium_reg_interface,
-            /* .context   = */ ctx.get()
+            /* .api_version = */ GGML_BACKEND_API_VERSION,
+            /* .interface   = */ ggml_backend_metalium_reg_interface,
+            /* .context     = */ ctx.get()
         };
     });
     return &reg;

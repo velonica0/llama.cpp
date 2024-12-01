@@ -20,7 +20,7 @@ endif()
 # TODO: In the future TTNN can optionally not depend on Python
 find_package(Python REQUIRED Development)
 
-add_library(ggml-metalium
+ggml_add_backend_library(ggml-metalium
     ggml-metalium.cpp
 )
 
