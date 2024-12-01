@@ -614,7 +614,8 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             uint32_t offset_elements = offset / ggml_type_size(src0->type);
             
             auto dst_volume = ggml_nelements(tensor);
-            if(offset_elements % tt::constants::TILE_WIDTH == 0 && dst_volume % tt::constants::TILE_HEIGHT == 0) {
+            if(offset_elements % tt::constants::TILE_WIDTH == 0 && dst_volume % tt::constants::TILE_HEIGHT == 0
+                && false /*Does not work as slice wants the final dim to be tile aligned*/) {
                 std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
                 auto t = ttnn::slice(*parent, start, end, step, tt::tt_metal::MemoryConfig());
                 res = reshape_tt_tensor_into_ggml(t, tensor);
@@ -624,7 +625,6 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
                 ttnn::SimpleShape start{0, 0, 0, offset_elements};
                 ttnn::SimpleShape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
                 tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(start, end);
-                tmp = ttnn::tilize_with_zero_padding(tmp.to(bufctx->device));
                 res = reshape_host_tt_tensor_into_ggml(tmp, parent->device(), tensor);
             }
         }
