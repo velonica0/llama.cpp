@@ -29,9 +29,9 @@ As mentioned earlier, the Metalium backend is experimental software. Thus featur
 * FP32 is emulated by internally using BFP16
    * Native FP32 will be enabled for Wormhole soon
 
-### Building and using the
+### Building and using the backend
 
-There is no "supported" TTNN version ns Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
+There is no "supported" TTNN versions Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
 
 1. Setup you environment/driver following the [official guide](https://github.com/tenstorrent/tt-metal/blob/main/INSTALLING.md)
 2. Build Metalium (and TTNN) with GCC (DO NOT use clang, they link against libc++ if clang is detected)
@@ -124,10 +124,21 @@ Besides the standard FP32 and BFP16 floating point support. Tenstorrent processo
 
 ## Environment Variable
 
+### Runtime variables
+
+| Variable Name | Value                                | Description                                                          |
+|---------------|--------------------------------------|----------------------------------------------------------------------|
+| TT_METAL_HOME | string  (mandatory)                  | Path to the repository which tt-metal is built                       |
+| ARCH_NAME     | wormhole_b0 \| grayskull (mandatory) | Archicture of the processor. Must be the same when tt-metal is built |
+
+
+
 ### Debug flags
 
 There are several debug flags available to assist with debugging/performance of the backend. These flags are triggered by setting environment variables and will be removed eventually. 
 
-* `GGML_METALIUM_PRINT_REJECTED_OPS` - Print operators GGML asked if the Metalium backend can run, and Metalium reported false.
-* `GGML_METALIUM_PRINT_VIEW` - Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that Metalium's lazy view system sees
-* `GGML_METALIUM_CACHE_MM_TRANSPOSE` - TTNN has limited support for pre-transposed matmul that GGML needs and does most on the fly. This option will improve LLM inference speed at the cost of a lot of memory.
+| Variable Name                    | Value           | Description                                                                                                                                                              |
+|----------------------------------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| GGML_METALIUM_PRINT_REJECTED_OPS | 0(default) or 1 | Print operators GGML asked if the Metalium backend can run, and Metalium reported false                                                                                  |
+| GGML_METALIUM_PRINT_VIEW         | 0(default) or 1 | Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that Metalium's lazy view system sees                                                                      |
+| GGML_METALIUM_CACHE_MM_TRANSPOSE | 0(default) or 1 | TTNN has limited support for pre-transposed matmul that GGML needs and does most on the fly. This options cache the transpose. Trades lot of memory for some performance |
