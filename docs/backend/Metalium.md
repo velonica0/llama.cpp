@@ -1,0 +1,133 @@
+# llama.cpp for Metalium
+
+## Table of Contents
+
+- [Background](#background)
+- [llama.cpp + Metalium](#llamacpp--metalium)
+- [Note on current limitations](#note-on-current-limitations)
+- [Hardware](#hardware)
+- [DataType Supports](#datatype-supports)
+- [Environment Variable](#environment-variable)
+
+## Background
+
+Tenstorrent produces a range of ASICs with very scalable design that enables efficient inference of AI models.
+
+**Metalium and TTNN** is the default low level and operator library developed by Tenstorrent (analogous to CUDA and cuDNN + ATen). They are the critical part of executing neural network computation on Tenstorrent devices and provides high level primitives for scaling to multiple connected Tenstorrent processors.
+
+### llama.cpp + Metalium
+
+The llama.cpp Metalium backend is designed to support inference on Tenstorrent's Wormhole or later processors. It is experimental software in it's early days. The earlier Grayskull generation processors are technically supported. However, some operators are not available due to hardware limitations. Leading to lower then expected performance.
+
+### Note on current limitations
+
+As mentioned earlier, the Metalium backend is experimental software. Thus features will be developed and enabled over time. As of writing the documentation, the following limitations applies:
+
+* Only device 0 is used
+* No device clustering support
+* KV Cache has to be stored on the CPU (via the `-nkvo` flag)
+* FP32 is emulated by internally using BFP16
+   * Native FP32 will be enabled for Wormhole soon
+
+### Building and using the
+
+There is no "supported" TTNN version ns Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
+
+1. Setup you environment/driver following the [official guide](https://github.com/tenstorrent/tt-metal/blob/main/INSTALLING.md)
+2. Build Metalium (and TTNN) with GCC (DO NOT use clang, they link against libc++ if clang is detected)
+
+
+```bash
+cd /path/to/your/tt-metal
+export TT_METAL_HOME=`pwd`
+export ARCH_NAME=wormhole_b0 # or "grayskull" if you are using it
+mkdir build
+cd build
+cmake .. -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_INSTALL_PREFIX=`pwd` -DCMAKE_BUILD_TYPE=Release -G Ninja
+ninja
+
+# Installs to the build directory
+ninja install
+```
+
+3. Build llama.cpp with `GGML_METALIUM=ON`. It will read the `TT_METAL_HOME` and `ARCH_NAME` variable above and error if they can not be detected. Likewise, the backend needs the environmental variables to function.
+
+```bash
+cd /path/to/your/llama.cpp
+mkdir build
+cd build
+cmake .. -DGGML_METALIUM=ON -DCMAKE_BUILD_TYPE=Release
+make -j16
+```
+
+4. Tenstorrent devices are treated as a GPU in llama.cpp. Use `-ngl` to set number of layers offloaded.
+
+**NOTE:** add the `-nkvo` flag to stop the KV cache being offloaded
+
+```bash
+bin/llama-cli -ngl 23 -m tinyllama-1.1b-chat-v1.0.Q4_0.gguf -p "The solution to Riemann hypothesis is" -nkvo
+```
+
+## Hardware
+
+### Hardware support
+
+The following hardware ate tested
+
+| Tenstorrent Device            | Status  |
+|:-----------------------------:|:-------:|
+| Grayskull e75                 | Tested  |
+| Wormhole N300                 | Tested  |
+
+## DataType Supports
+
+Besides the standard FP32 and BFP16 floating point support. Tenstorrent processors support their own native quantized data types (BFLOAT8_B, BFLOAT4_B, etc.). Thus, weights and activations are automatically converted to supported native types. The conversion is as follows:
+
+| GGML Type             | Metalium DataType          |
+|-----------------------|----------------------------|
+| GGML_TYPE_F32         | BFLOAT16                   |
+| GGML_TYPE_F16         | BFLOAT16                   |
+| GGML_TYPE_Q4_0        | BFLOAT4_B*                 |
+| GGML_TYPE_Q4_1        | BFLOAT4_B*                 |
+| GGML_TYPE_Q5_0        | BFLOAT8_B                  |
+| GGML_TYPE_Q5_1        | BFLOAT8_B                  |
+| GGML_TYPE_Q8_0        | BFLOAT8_B                  |
+| GGML_TYPE_Q8_1        | BFLOAT8_B                  |
+| GGML_TYPE_Q2_K        | Unsupported                |
+| GGML_TYPE_Q3_K        | BFLOAT4_B*                 |
+| GGML_TYPE_Q4_K        | BFLOAT4_B*                 |
+| GGML_TYPE_Q5_K        | BFLOAT8_B                  |
+| GGML_TYPE_Q6_K        | BFLOAT8_B                  |
+| GGML_TYPE_Q8_K        | BFLOAT8_B                  |
+| GGML_TYPE_IQ2_XXS     | Unsupported                |
+| GGML_TYPE_IQ2_XS      | Unsupported                |
+| GGML_TYPE_IQ3_XXS     | Unsupported                |
+| GGML_TYPE_IQ1_S       | Unsupported                |
+| GGML_TYPE_IQ4_NL      | Unsupported                |
+| GGML_TYPE_IQ3_S       | Unsupported                |
+| GGML_TYPE_IQ2_S       | Unsupported                |
+| GGML_TYPE_IQ4_XS      | Unsupported                |
+| GGML_TYPE_I8          | Unsupported                |
+| GGML_TYPE_I16         | Unsupported                |
+| GGML_TYPE_I32         | Unsupported                |
+| GGML_TYPE_I64         | Unsupported                |
+| GGML_TYPE_F64         | Unsupported                |
+| GGML_TYPE_IQ1_M       | Unsupported                |
+| GGML_TYPE_BF16        | BFLOAT16                   |
+| GGML_TYPE_Q4_0_4_4    | Unsupported                |
+| GGML_TYPE_Q4_0_4_8    | Unsupported                |
+| GGML_TYPE_Q4_0_8_8    | Unsupported                |
+| GGML_TYPE_TQ1_0       | Unsupported                |
+| GGML_TYPE_TQ2_0       | Unsupported                |
+
+* All BFLOAT4_B types used to work but is emulated with BFLOAT8_B until upstream bug is fixed
+
+## Environment Variable
+
+### Debug flags
+
+There are several debug flags available to assist with debugging/performance of the backend. These flags are triggered by setting environment variables and will be removed eventually. 
+
+* `GGML_METALIUM_PRINT_REJECTED_OPS` - Print operators GGML asked if the Metalium backend can run, and Metalium reported false.
+* `GGML_METALIUM_PRINT_VIEW` - Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that Metalium's lazy view system sees
+* `GGML_METALIUM_CACHE_MM_TRANSPOSE` - TTNN has limited support for pre-transposed matmul that GGML needs and does most on the fly. This option will improve LLM inference speed at the cost of a lot of memory.

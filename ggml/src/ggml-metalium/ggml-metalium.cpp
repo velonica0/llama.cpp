@@ -224,11 +224,11 @@ static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH a
             /*GGML_TYPE_F32 = */ tt::tt_metal::DataType::BFLOAT16,
             /*GGML_TYPE_F16 = */ tt::tt_metal::DataType::BFLOAT16,
             /*GGML_TYPE_Q4_0 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Using BFLOAT8_B for now as BFLOAT4_B is broken on Grayskull
-            /*GGML_TYPE_Q4_1 = */ tt::tt_metal::DataType::INVALID,      // Does work but causes issues in unit tests
+            /*GGML_TYPE_Q4_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
             tt::tt_metal::DataType::INVALID,
             tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_Q5_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::BFLOAT8_B,      // Does work but causes issues in unit tests
+            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
             /*GGML_TYPE_Q8_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
             /*GGML_TYPE_Q8_1 = */ tt::tt_metal::DataType::BFLOAT8_B,
             /*GGML_TYPE_Q2_K = */ tt::tt_metal::DataType::INVALID,
@@ -2086,7 +2086,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                // return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
+                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;
