@@ -62,6 +62,10 @@
 #include "ggml-kompute.h"
 #endif
 
+#ifdef GGML_USE_METALIUM
+#include "ggml-metalium.h"
+#endif
+
 #ifdef _WIN32
 
 using dl_handle = std::remove_pointer_t<HMODULE>;
@@ -157,6 +161,9 @@ struct ggml_backend_registry {
 #endif
 #ifdef GGML_USE_KOMPUTE
         register_backend(ggml_backend_kompute_reg());
+#endif
+#ifdef GGML_USE_METALIUM
+        register_backend(ggml_backend_metalium_reg());
 #endif
 #ifdef GGML_USE_CPU
         register_backend(ggml_backend_cpu_reg());
@@ -525,5 +532,6 @@ void ggml_backend_load_all() {
     ggml_backend_load_best("sycl", silent);
     ggml_backend_load_best("vulkan", silent);
     ggml_backend_load_best("musa", silent);
+    ggml_backend_load_best("metalium", silent);
     ggml_backend_load_best("cpu", silent);
 }
