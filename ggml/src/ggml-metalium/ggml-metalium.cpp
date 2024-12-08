@@ -48,7 +48,7 @@
 #include <ttnn/operations/data_movement/permute/permute.hpp>
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
-#include <ttnn/operations/experimental/copy/typecast/typecast.hpp>
+#include <ttnn/operations/copy.hpp>
 #include <tt_metal/detail/persistent_kernel_cache.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 
@@ -877,7 +877,7 @@ static bool ggml_backend_metalium_activations(ggml_backend_metalium_context * ct
             break;
         case GGML_UNARY_OP_STEP:
             // TODO: Make sure the resulting data type matches the input
-            ret = ttnn::experimental::typecast(ttnn::gtz(*src_tensor), ggml2tt_type(dst->type, src_tensor->device()->arch()));
+            ret = ttnn::typecast(ttnn::gtz(*src_tensor), ggml2tt_type(dst->type, src_tensor->device()->arch()));
             break;
         case GGML_UNARY_OP_EXP:
             ret = ttnn::exp(*src_tensor);
@@ -1641,7 +1641,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
     if(final_type != t.dtype()) {
-        t = ttnn::experimental::typecast(t, final_type);
+        t = ttnn::typecast(t, final_type);
     }
     if(permute.has_value()) {
         t = ttnn::permute(t, permute.value());
@@ -1722,7 +1722,7 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     }
     GGML_ASSERT(t->layout() == tt::tt_metal::Layout::TILE);
     if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 || t->dtype() != tt::tt_metal::DataType::FLOAT32) {
-        t = std::make_shared<tt::tt_metal::Tensor>(ttnn::experimental::typecast(*t, tt::tt_metal::DataType::BFLOAT16));
+        t = std::make_shared<tt::tt_metal::Tensor>(ttnn::typecast(*t, tt::tt_metal::DataType::BFLOAT16));
     }
 
     // TODO: Proper handling of data types

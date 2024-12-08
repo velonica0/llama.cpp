@@ -15,7 +15,6 @@
 #include "host_api.hpp"
 #include "impl/dispatch/command_queue.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
-#include "ttnn/operations/data_movement/untilize_with_unpadding/untilize_with_unpadding.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -29,6 +28,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <mutex>
 #include <optional>
 #include <string_view>
@@ -50,13 +50,14 @@
 #include <ttnn/operations/data_movement/permute/permute.hpp>
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
-#include <ttnn/operations/experimental/copy/typecast/typecast.hpp>
+#include <ttnn/operations/copy.hpp>
 #include <tt_metal/detail/persistent_kernel_cache.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 
 
 #include <memory>
 #include <type_traits>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 #endif
