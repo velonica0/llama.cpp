@@ -1638,14 +1638,11 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         , tt::tt_metal::DataType::BFLOAT16, tt::tt_metal::Layout::ROW_MAJOR);
 
     tt::ARCH processor_class = bufctx->device->arch();
-    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
-    if(final_type != t.dtype()) {
-        t = ttnn::typecast(t, final_type);
-    }
     if(permute.has_value()) {
         t = ttnn::permute(t, permute.value());
     }
+    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type, true);
     GGML_ASSERT(t.storage_type() == tt::tt_metal::StorageType::DEVICE || t.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
     GGML_ASSERT(t.dtype() == final_type);
     GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, t));
