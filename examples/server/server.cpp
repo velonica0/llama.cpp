@@ -16,12 +16,7 @@
 
 // auto generated files (update with ./deps.sh)
 #include "index.html.hpp"
-#include "completion.js.hpp"
 #include "loading.html.hpp"
-#include "deps_daisyui.min.css.hpp"
-#include "deps_markdown-it.js.hpp"
-#include "deps_tailwindcss.js.hpp"
-#include "deps_vue.esm-browser.js.hpp"
 
 #include <atomic>
 #include <condition_variable>
@@ -103,12 +98,6 @@ struct server_task_result {
     bool error;
 };
 
-struct server_static_file {
-    const unsigned char * data;
-    unsigned int size;
-    const char * mime_type;
-};
-
 struct slot_params {
     bool stream       = true;
     bool cache_prompt = true; // remember the prompt to avoid reprocessing all prompt
@@ -176,6 +165,8 @@ struct server_slot {
     bool stopped_eos    = false;
     bool stopped_word   = false;
     bool stopped_limit  = false;
+
+    bool timings_per_token = false;
 
     bool oaicompat = false;
 
@@ -694,8 +685,9 @@ struct server_context {
 
             params_dft.devices      = params_base.speculative.devices;
             params_dft.model        = params_base.speculative.model;
-            params_dft.n_ctx        = params_base.speculative.n_ctx;
+            params_dft.n_ctx        = params_base.speculative.n_ctx == 0 ? params_base.n_ctx / params_base.n_parallel : params_base.speculative.n_ctx;
             params_dft.n_gpu_layers = params_base.speculative.n_gpu_layers;
+            params_dft.n_parallel   = 1;
 
             common_init_result llama_init_dft = common_init_from_params(params_dft);
 
@@ -715,8 +707,14 @@ struct server_context {
                 return false;
             }
 
-            cparams_dft = common_context_params_to_llama(params_base);
-            cparams_dft.n_batch = llama_n_ctx(llama_init_dft.context);
+            const int n_ctx_dft = llama_n_ctx(llama_init_dft.context);
+
+            cparams_dft = common_context_params_to_llama(params_dft);
+            cparams_dft.n_batch = n_ctx_dft;
+
+            // force F16 KV cache for the draft model for extra performance
+            cparams_dft.type_k = GGML_TYPE_F16;
+            cparams_dft.type_v = GGML_TYPE_F16;
 
             // the context is not needed - we will create one for each slot
             llama_free(llama_init_dft.context);
@@ -882,6 +880,8 @@ struct server_context {
             slot.oaicompat_model = "";
         }
 
+        slot.timings_per_token       = json_value(data, "timings_per_token",  false);
+
         slot.params.stream           = json_value(data, "stream",             false);
         slot.params.cache_prompt     = json_value(data, "cache_prompt",       true);
         slot.params.n_predict        = json_value(data, "n_predict",          json_value(data, "max_tokens", defaults.n_predict));
@@ -921,6 +921,8 @@ struct server_context {
         slot.params.speculative.p_min = json_value(data, "speculative.p_min", defaults.speculative.p_min);
 
         slot.params.speculative.n_min = std::min(slot.params.speculative.n_max, slot.params.speculative.n_min);
+        slot.params.speculative.n_min = std::max(slot.params.speculative.n_min, 2);
+        slot.params.speculative.n_max = std::max(slot.params.speculative.n_max, 0);
 
         if (slot.params.sampling.dry_base < 1.0f) {
            slot.params.sampling.dry_base = defaults.sampling.dry_base;
@@ -1279,6 +1281,7 @@ struct server_context {
             {"speculative.n_max",         slot.params.speculative.n_max},
             {"speculative.n_min",         slot.params.speculative.n_min},
             {"speculative.p_min",         slot.params.speculative.p_min},
+            {"timings_per_token",         slot.timings_per_token},
         };
     }
 
@@ -1334,6 +1337,10 @@ struct server_context {
         if (slot.oaicompat) {
             res.data["oaicompat_token_ctr"] = slot.n_decoded;
             res.data["model"] = slot.oaicompat_model;
+        }
+
+        if (slot.timings_per_token) {
+            res.data["timings"] = slot.get_formated_timings();
         }
 
         queue_results.send(res);
@@ -2274,11 +2281,16 @@ struct server_context {
                 common_sampler_accept(slot.smpl, id, true);
 
                 slot.n_decoded += 1;
+
+                const int64_t t_current = ggml_time_us();
+
                 if (slot.n_decoded == 1) {
-                    slot.t_start_generation = ggml_time_us();
+                    slot.t_start_generation = t_current;
                     slot.t_prompt_processing = (slot.t_start_generation - slot.t_start_process_prompt) / 1e3;
                     metrics.on_prompt_eval(slot);
                 }
+
+                slot.t_token_generation = (t_current - slot.t_start_generation) / 1e3;
 
                 completion_token_output result;
                 result.tok = id;
@@ -2308,10 +2320,33 @@ struct server_context {
                     continue;
                 }
 
+                if (slot.state != SLOT_STATE_GENERATING) {
+                    continue;
+                }
+
+                // determine the max draft that fits the current slot state
+                int n_draft_max = slot.params.speculative.n_max;
+
+                // note: n_past is not yet increased for the `id` token sampled above
+                //       also, need to leave space for 1 extra token to allow context shifts
+                n_draft_max = std::min(n_draft_max, slot.n_ctx - slot.n_past - 2);
+
+                if (slot.n_remaining > 0) {
+                    n_draft_max = std::min(n_draft_max, slot.n_remaining - 1);
+                }
+
+                SLT_DBG(slot, "max possible draft: %d\n", n_draft_max);
+
+                if (n_draft_max < slot.params.speculative.n_min) {
+                    SLT_DBG(slot, "the max possible draft is too small: %d < %d - skipping speculative decoding\n", n_draft_max, slot.params.speculative.n_min);
+
+                    continue;
+                }
+
                 llama_token id = slot.sampled;
 
                 struct common_speculative_params params_spec;
-                params_spec.n_draft   = slot.params.speculative.n_max;
+                params_spec.n_draft   = n_draft_max;
                 params_spec.n_reuse   = llama_n_ctx(slot.ctx_dft) - slot.params.speculative.n_max;
                 params_spec.p_min     = slot.params.speculative.p_min;
 
@@ -2319,6 +2354,8 @@ struct server_context {
 
                 // ignore small drafts
                 if (slot.params.speculative.n_min > (int) draft.size()) {
+                    SLT_DBG(slot, "ignoring small draft: %d < %d\n", (int) draft.size(), slot.params.speculative.n_min);
+
                     continue;
                 }
 
@@ -2329,6 +2366,8 @@ struct server_context {
                 for (size_t i = 0; i < draft.size(); ++i) {
                     common_batch_add(slot.batch_spec, draft[i], slot.n_past + 1 + i, { slot.id }, true);
                 }
+
+                SLT_DBG(slot, "decoding speculative batch, size = %d\n", slot.batch_spec.n_tokens);
 
                 llama_decode(ctx, slot.batch_spec);
 
@@ -2358,7 +2397,7 @@ struct server_context {
                     }
                 }
 
-                SRV_DBG("accepted %d/%d draft tokens\n", (int) ids.size() - 1, (int) draft.size());
+                SLT_DBG(slot, "accepted %d/%d draft tokens, new n_past = %d\n", (int) ids.size() - 1, (int) draft.size(), slot.n_past);
             }
         }
 
@@ -2431,16 +2470,6 @@ int main(int argc, char ** argv) {
     LOG_INF("\n");
     LOG_INF("%s\n", common_params_get_system_info(params).c_str());
     LOG_INF("\n");
-
-    // static files
-    std::map<std::string, server_static_file> static_files = {
-        { "/",                        { index_html,              index_html_len,              "text/html; charset=utf-8" }},
-        { "/completion.js",           { completion_js,           completion_js_len,           "text/javascript; charset=utf-8" }},
-        { "/deps_daisyui.min.css",    { deps_daisyui_min_css,    deps_daisyui_min_css_len,    "text/css; charset=utf-8" }},
-        { "/deps_markdown-it.js",     { deps_markdown_it_js,     deps_markdown_it_js_len,     "text/javascript; charset=utf-8" }},
-        { "/deps_tailwindcss.js",     { deps_tailwindcss_js,     deps_tailwindcss_js_len,     "text/javascript; charset=utf-8" }},
-        { "/deps_vue.esm-browser.js", { deps_vue_esm_browser_js, deps_vue_esm_browser_js_len, "text/javascript; charset=utf-8" }},
-    };
 
     std::unique_ptr<httplib::Server> svr;
 #ifdef CPPHTTPLIB_OPENSSL_SUPPORT
@@ -2522,7 +2551,7 @@ int main(int argc, char ** argv) {
     // Middlewares
     //
 
-    auto middleware_validate_api_key = [&params, &res_error, &static_files](const httplib::Request & req, httplib::Response & res) {
+    auto middleware_validate_api_key = [&params, &res_error](const httplib::Request & req, httplib::Response & res) {
         static const std::unordered_set<std::string> public_endpoints = {
             "/health",
             "/models",
@@ -2535,7 +2564,7 @@ int main(int argc, char ** argv) {
         }
 
         // If path is public or is static file, skip validation
-        if (public_endpoints.find(req.path) != public_endpoints.end() || static_files.find(req.path) != static_files.end()) {
+        if (public_endpoints.find(req.path) != public_endpoints.end() || req.path == "/") {
             return true;
         }
 
@@ -3292,14 +3321,11 @@ int main(int argc, char ** argv) {
             return 1;
         }
     } else {
-        // using embedded static files
-        for (const auto & it : static_files) {
-            const server_static_file & static_file = it.second;
-            svr->Get(it.first.c_str(), [&static_file](const httplib::Request &, httplib::Response & res) {
-                res.set_content(reinterpret_cast<const char*>(static_file.data), static_file.size, static_file.mime_type);
-                return false;
-            });
-        }
+        // using embedded static index.html
+        svr->Get("/", [](const httplib::Request &, httplib::Response & res) {
+            res.set_content(reinterpret_cast<const char*>(index_html), index_html_len, "text/html; charset=utf-8");
+            return false;
+        });
     }
 
     // register API routes
@@ -3347,8 +3373,18 @@ int main(int argc, char ** argv) {
         llama_backend_free();
     };
 
-    // bind HTTP listen port, run the HTTP server in a thread
-    if (!svr->bind_to_port(params.hostname, params.port)) {
+    // bind HTTP listen port
+    bool was_bound = false;
+    if (params.port == 0) {
+        int bound_port = svr->bind_to_any_port(params.hostname);
+        if ((was_bound = (bound_port >= 0))) {
+            params.port = bound_port;
+        }
+    } else {
+        was_bound = svr->bind_to_port(params.hostname, params.port);
+    }
+
+    if (!was_bound) {
         //LOG_ERROR("couldn't bind HTTP server socket", {
         //    {"hostname", params.hostname},
         //    {"port", params.port},
@@ -3357,6 +3393,8 @@ int main(int argc, char ** argv) {
         clean_up();
         return 1;
     }
+
+    // run the HTTP server in a thread
     std::thread t([&]() { svr->listen_after_bind(); });
     svr->wait_until_ready();
 
