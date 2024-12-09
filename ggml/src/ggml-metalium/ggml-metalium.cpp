@@ -17,6 +17,7 @@
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
+#include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include <algorithm>
@@ -293,10 +294,12 @@ static bool is_ggml_type_supported_by_metalium(ggml_type ggtype, tt::ARCH arch) 
     return ggml2tt_type_internal(ggtype, arch) != tt::tt_metal::DataType::INVALID;
 }
 
+// NOTE: Even though returns an OwnedStorage, the borrowed buffer is still owned by the storage
+// This simply optimizes away unnecessary initializations
 template <typename SrcType, typename DstType>
-tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
+tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t size) {
     // Converts GGML floating point (FP32, FP16, BF16) to TT floating point (FP32, BF16)
-    std::vector<DstType> vec(size);
+    std::shared_ptr<DstType[]> vec(new DstType[size]);
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
     // Convert from  GGML types to TT types
@@ -329,31 +332,31 @@ tt::tt_metal::OwnedStorage data2owned_storage(const SrcType* src, size_t size) {
     };
 
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
-    if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_fp16_t> && std::is_same_v<Dst, bfloat16>)) {
+    if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_bf16_t> && std::is_same_v<Dst, bfloat16>)) {
         // Make GCC shut up about writing into a class like it's flat memory
-        memcpy((void*)vec.data(), src, size * sizeof(Src));
+        memcpy((void*)vec.get(), src, size * sizeof(Src));
     }
     else {
         for(size_t i = 0; i < size; i++) {
-            dst_adaptor(vec[i], src_adaptor(src[i]));
+            dst_adaptor(vec.get()[i], src_adaptor(src[i]));
         }
     }
-    auto owned = tt::tt_metal::owned_buffer::Buffer<DstType>(std::make_shared<std::vector<DstType>>(std::move(vec)));
-    return OwnedStorage(std::move(owned));
+    auto storage = tt::tt_metal::borrowed_buffer::Buffer<DstType>(vec.get(), size);
+    return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::move(vec)]() mutable {holder.reset();});
 }
 
 template <typename DstType>
-tt::tt_metal::OwnedStorage ggml_quantized2owned_storage(const void* src, ggml_tensor* tensor) {
+tt::tt_metal::BorrowedStorage ggml_quantized2owned_storage(const void* src, ggml_tensor* tensor) {
     const ggml_type_traits* trait = ggml_get_type_traits(tensor->type);
     GGML_ASSERT(trait->to_float != NULL);
-    // TODO: Currently we decompress the entire quantized data into float and then convert to bfloat16
+    // TODO: Currently we decompress the entire quantized data into float and then convert to DstType
     // (So later on we can convert again to TT quantized types). We SHOULD be able to not decompress
     // the entire quantized GGML tensor. Save on memory.
     // TODO: Consider parallelizing this. It is quite slow
-    std::vector<float> vec(ggml_nelements(tensor));
-    trait->to_float(src, vec.data(), ggml_nelements(tensor));
+    std::unique_ptr<float[]> vec(new float[ggml_nelements(tensor)]);
+    trait->to_float(src, vec.get(), ggml_nelements(tensor));
 
-    return data2owned_storage<float, bfloat16>(vec.data(), vec.size());
+    return data2borroweded_storage<float, DstType>(vec.get(), ggml_nelements(tensor));
 }
 
 template <typename SrcType>
@@ -1572,18 +1575,18 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
 
     // TODO: See if we can use BorrowedStorage to avoid copying the data
     bool source_is_quantized = ggml_is_quantized(ggtype);
-    OwnedStorage storage;
+    BorrowedStorage storage;
     if(ggtype == GGML_TYPE_F32) {
         // For now we cast F32 to BF16. Need a scalable way to handle this as WORMHOLD_B0 have native support for F32
         // TODO: Might want to consider disabling F32 support for Grayskull in the future
-        storage = data2owned_storage<float, bfloat16>((const float*)data, size / sizeof(float));
+        storage = data2borroweded_storage<float, bfloat16>((const float*)data, size / sizeof(float));
     }
     else if (ggtype == GGML_TYPE_F16) {
         // TT hardware claims to support FP16 but the API does not expose it. For now we use BF16 as it is close enough
-        storage = data2owned_storage<ggml_fp16_t, bfloat16>((const ggml_fp16_t*)data, size / sizeof(ggml_fp16_t));
+        storage = data2borroweded_storage<ggml_fp16_t, bfloat16>((const ggml_fp16_t*)data, size / sizeof(ggml_fp16_t));
     }
     else if (ggtype == GGML_TYPE_BF16) {
-        storage = data2owned_storage<ggml_bf16_t, bfloat16>((const ggml_bf16_t*)data, size / sizeof(ggml_bf16_t));
+        storage = data2borroweded_storage<ggml_bf16_t, bfloat16>((const ggml_bf16_t*)data, size / sizeof(ggml_bf16_t));
     }
     else if (source_is_quantized) {
         storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
@@ -1639,10 +1642,10 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
 
     tt::ARCH processor_class = bufctx->device->arch();
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
+    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type, true);
     if(permute.has_value()) {
         t = ttnn::permute(t, permute.value());
     }
-    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type, true);
     GGML_ASSERT(t.storage_type() == tt::tt_metal::StorageType::DEVICE || t.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
     GGML_ASSERT(t.dtype() == final_type);
     GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, t));
