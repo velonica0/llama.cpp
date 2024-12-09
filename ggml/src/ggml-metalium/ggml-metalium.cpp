@@ -336,6 +336,11 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
         // Make GCC shut up about writing into a class like it's flat memory
         memcpy((void*)vec.get(), src, size * sizeof(Src));
     }
+    // special case if GGML can convert nativly (much faster then TTNN's implementation)
+    else if constexpr(std::is_same_v<Src, float> && std::is_same_v<Dst, bfloat16>) {
+        const auto* trait = ggml_get_type_traits_cpu(GGML_TYPE_BF16);
+        trait->from_float(src, vec.get(), size);
+    }
     else {
         for(size_t i = 0; i < size; i++) {
             dst_adaptor(vec.get()[i], src_adaptor(src[i]));
