@@ -18,6 +18,7 @@
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
+#include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include <algorithm>
@@ -99,15 +100,23 @@ struct TensorWithMetadata
 
 static bool ggml_tt_tensors_shape_equal(const ggml_tensor* ggtensor, const tt::tt_metal::Tensor& ttensor)
 {
-    for(int i = 0; i < GGML_MAX_DIMS; i++) {
-        if(ggtensor->ne[GGML_MAX_DIMS - i - 1] != ttensor.shape()[i]) {
+    const ttnn::SimpleShape& shape = ttensor.logical_shape();
+    for(size_t i = 0; i < std::min<size_t>(GGML_MAX_DIMS, shape.size()); i++) {
+        if(ggtensor->ne[GGML_MAX_DIMS - i - 1] != shape[i]) {
             return false;
         }
     }
 
-    if(ttensor.shape().size() > GGML_MAX_DIMS) {
-        for(size_t i = GGML_MAX_DIMS; i < ttensor.shape().size(); i++) {
-            if(ttensor.shape()[i] != 1) {
+    if(shape.size() > GGML_MAX_DIMS) {
+        for(size_t i = GGML_MAX_DIMS; i < shape.size(); i++) {
+            if(shape[i] != 1) {
+                return false;
+            }
+        }
+    }
+    else if(shape.size() < GGML_MAX_DIMS) {
+        for(size_t i = shape.size(); i < GGML_MAX_DIMS; i++) {
+            if(ggtensor->ne[GGML_MAX_DIMS - i - 1] != 1) {
                 return false;
             }
         }
@@ -367,8 +376,8 @@ tt::tt_metal::BorrowedStorage ggml_quantized2owned_storage(const void* src, ggml
 template <typename SrcType>
 void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]] tt::tt_metal::CommandQueue& queue, ggml_type dst_ggtype) {
     // Converts TT tensors to GGML types
-    ttnn::SimpleShape shape = tensor.shape().logical_shape();
-    ttnn::SimpleShape padded_shape = tensor.shape().padded_shape();
+    ttnn::SimpleShape shape = tensor.logical_shape();
+    ttnn::SimpleShape padded_shape = tensor.padded_shape();
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16>);
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
