@@ -19,6 +19,8 @@
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
+#include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
+#include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include <algorithm>
@@ -60,4 +62,8 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+
+#ifdef __x86_64__
+#include <immintrin.h>
+#endif
 #endif

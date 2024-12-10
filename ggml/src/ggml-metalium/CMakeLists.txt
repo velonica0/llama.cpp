@@ -55,7 +55,6 @@ target_link_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/build/lib
 )
 
-
 target_link_libraries(ggml-metalium PRIVATE
     # Metalium
     tt_metal

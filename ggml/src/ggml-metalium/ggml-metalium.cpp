@@ -418,13 +418,14 @@ template <typename DstType>
 tt::tt_metal::BorrowedStorage ggml_quantized2owned_storage(const void* src, ggml_tensor* tensor) {
     const ggml_type_traits* trait = ggml_get_type_traits(tensor->type);
     GGML_ASSERT(trait->to_float != NULL);
-    // TODO: Currently we decompress the entire quantized data into float and then convert to DstType
-    // (So later on we can convert again to TT quantized types). We SHOULD be able to not decompress
-    // the entire quantized GGML tensor. Save on memory.
-    // TODO: Consider parallelizing this. It is quite slow
-    std::unique_ptr<float[]> vec(new float[ggml_nelements(tensor)]);
+
+    std::shared_ptr<float[]> vec(new float[ggml_nelements(tensor)]);
     trait->to_float(src, vec.get(), ggml_nelements(tensor));
 
+    if constexpr(std::is_same_v<DstType, float>) {
+        auto storage = tt::tt_metal::borrowed_buffer::Buffer<float>(vec.get(), ggml_nelements(tensor));
+        return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::move(vec)]() mutable {holder.reset();});
+    }
     return data2borroweded_storage<float, DstType>(vec.get(), ggml_nelements(tensor));
 }
 
@@ -1632,6 +1633,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     ggml_backend_metalium_buffer_context * bufctx = (ggml_backend_metalium_buffer_context *)buffer->context;
     ggml_type ggtype = tensor->type;
     TensorWithMetadata * meta = (TensorWithMetadata *)tensor->extra;
+    const tt::ARCH processor_class = bufctx->device->arch();
 
     // Make sure we are not writing to a view tensor
     if(size != ggml_nbytes(tensor) || (meta->tensor && ggml_tt_tensors_shape_equal(tensor, *meta->tensor) == false)
@@ -1645,6 +1647,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     // TODO: See if we can use BorrowedStorage to avoid copying the data
     bool source_is_quantized = ggml_is_quantized(ggtype);
     BorrowedStorage storage;
+    tt::tt_metal::DataType intermidiate_type = tt::tt_metal::DataType::BFLOAT16;
     if(ggtype == GGML_TYPE_F32) {
         // For now we cast F32 to BF16. Need a scalable way to handle this as WORMHOLD_B0 have native support for F32
         // TODO: Might want to consider disabling F32 support for Grayskull in the future
@@ -1658,7 +1661,20 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         storage = data2borroweded_storage<ggml_bf16_t, bfloat16>((const ggml_bf16_t*)data, size / sizeof(ggml_bf16_t));
     }
     else if (source_is_quantized) {
-        storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
+        // TT hardware has it's own quantized data types. We need to convert the data to the correct format. GGML nativly supports
+        // decoding quantized data to FP32. So on hardware that supports FP32, it is faster to convert the data to FP32, then let the
+        // hardware convert it to the correct quantized data type. Else (on Grayskull) we need an additional step to convert what GGML
+        // gives us (FP32) to the bfloat16, which is universally supported by all TT hardware. Then to quantized data type. This extra
+        // conversion step is quite expensive.
+        if(processor_class != tt::ARCH::GRAYSKULL) {
+            storage = ggml_quantized2owned_storage<float>(data, tensor);
+            intermidiate_type = tt::tt_metal::DataType::FLOAT32;
+        }
+        else {
+            storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
+        }
+
+        
     }
     // TODO: Add support for integer data types. Google's Gemma models seems to use them extensively
     else {
@@ -1707,10 +1723,10 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     }
 
     tt::tt_metal::Tensor t(std::move(storage), ttnn::Shape(shape)
-        , tt::tt_metal::DataType::BFLOAT16, tt::tt_metal::Layout::ROW_MAJOR);
+        , intermidiate_type, tt::tt_metal::Layout::ROW_MAJOR);
 
-    tt::ARCH processor_class = bufctx->device->arch();
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
+    // FIXME: Setting multi_core to true may cause a crash if the tensor is too large
     t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type, true);
     if(permute.has_value()) {
         t = ttnn::permute(t, permute.value());
