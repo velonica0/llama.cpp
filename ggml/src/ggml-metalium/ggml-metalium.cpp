@@ -2,7 +2,6 @@
 #include "common/bfloat16.hpp"
 #include "common/constants.hpp"
 #include "common/logger.hpp"
-#include "device/tt_arch_types.h"
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
 #include "ggml.h"
@@ -559,7 +558,8 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
         target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    return ttnn::reshape(tensor, ttnn::SimpleShape(target_shape));    
+    std::cerr << "Reshaping tensor " << tensor.shape() << " to " << target_shape << std::endl;
+    return ttnn::reshape(tensor, ttnn::SimpleShape(target_shape));
 }
 
 static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::Device* device, const struct ggml_tensor * node)

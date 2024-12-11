@@ -4,7 +4,6 @@
 #include "common/bfloat16.hpp"
 #include "common/constants.hpp"
 #include "common/logger.hpp"
-#include "device/tt_arch_types.h"
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
 #include "ggml.h"
