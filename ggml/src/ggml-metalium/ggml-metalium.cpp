@@ -363,7 +363,6 @@ static bool is_ggml_type_supported_by_metalium(ggml_type ggtype, tt::ARCH arch) 
 template <typename SrcType, typename DstType>
 tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t size) {
     // Converts GGML floating point (FP32, FP16, BF16) to TT floating point (FP32, BF16)
-    std::shared_ptr<DstType[]> vec(new DstType[size]);
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
     // Convert from  GGML types to TT types
@@ -395,12 +394,13 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
         }
     };
 
+    std::shared_ptr<Dst[]> vec(new Dst[size]);
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
     if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_bf16_t> && std::is_same_v<Dst, bfloat16>)) {
         // Make GCC shut up about writing into a class like it's flat memory
         memcpy((void*)vec.get(), src, size * sizeof(Src));
     }
-    // special case if GGML can convert nativly (much faster then TTNN's implementation)
+    // special case for BFP16 (much faster then TTNN's implementation)
     else if constexpr(std::is_same_v<Src, float> && std::is_same_v<Dst, bfloat16>) {
         internal_fp32_to_bf16(src, vec.get(), size);
     }
@@ -409,23 +409,24 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
             dst_adaptor(vec.get()[i], src_adaptor(src[i]));
         }
     }
-    auto storage = tt::tt_metal::borrowed_buffer::Buffer<DstType>(vec.get(), size);
-    return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::move(vec)]() mutable {holder.reset();});
+    auto storage = tt::tt_metal::borrowed_buffer::Buffer<Dst>(vec.get(), size);
+    return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::move(vec)](){});
 }
 
 template <typename DstType>
-tt::tt_metal::BorrowedStorage ggml_quantized2owned_storage(const void* src, ggml_tensor* tensor) {
+tt::tt_metal::BorrowedStorage ggml_quantized2owned_storage(const void* src, const ggml_tensor* tensor) {
     const ggml_type_traits* trait = ggml_get_type_traits(tensor->type);
+    const size_t size = ggml_nelements(tensor);
     GGML_ASSERT(trait->to_float != NULL);
 
-    std::shared_ptr<float[]> vec(new float[ggml_nelements(tensor)]);
-    trait->to_float(src, vec.get(), ggml_nelements(tensor));
+    std::unique_ptr<float[]> vec(new float[size]);
+    trait->to_float(src, vec.get(), size);
 
     if constexpr(std::is_same_v<DstType, float>) {
-        auto storage = tt::tt_metal::borrowed_buffer::Buffer<float>(vec.get(), ggml_nelements(tensor));
-        return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::move(vec)]() mutable {holder.reset();});
+        auto storage = tt::tt_metal::borrowed_buffer::Buffer<float>(vec.get(), size);
+        return tt::tt_metal::BorrowedStorage(storage, [](){}, [holder=std::shared_ptr<float[]>(std::move(vec))](){});
     }
-    return data2borroweded_storage<float, DstType>(vec.get(), ggml_nelements(tensor));
+    return data2borroweded_storage<float, DstType>(vec.get(), size);
 }
 
 template <typename SrcType>
@@ -1666,13 +1667,13 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         // hardware convert it to the correct quantized data type. Else (on Grayskull) we need an additional step to convert what GGML
         // gives us (FP32) to the bfloat16, which is universally supported by all TT hardware. Then to quantized data type. This extra
         // conversion step is quite expensive.
-        if(processor_class != tt::ARCH::GRAYSKULL) {
-            storage = ggml_quantized2owned_storage<float>(data, tensor);
-            intermidiate_type = tt::tt_metal::DataType::FLOAT32;
-        }
-        else {
+        // if(processor_class != tt::ARCH::GRAYSKULL) {
+        //     storage = ggml_quantized2owned_storage<float>(data, tensor);
+        //     intermidiate_type = tt::tt_metal::DataType::FLOAT32;
+        // }
+        // else {
             storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
-        }
+        // }
 
         
     }
