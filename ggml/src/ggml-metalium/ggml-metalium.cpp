@@ -363,7 +363,7 @@ static bool is_ggml_type_supported_by_metalium(ggml_type ggtype, tt::ARCH arch) 
 template <typename SrcType, typename DstType>
 tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t size) {
     // Converts GGML floating point (FP32, FP16, BF16) to TT floating point (FP32, BF16)
-    std::shared_ptr<DstType[]> vec(new DstType[size]);
+    std::shared_ptr<DstType[]> vec = std::make_shared<DstType[]>(size);
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
     // Convert from  GGML types to TT types
