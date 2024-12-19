@@ -1882,8 +1882,7 @@ ggml_backend_metalium_buffer_cpy_tensor(ggml_backend_buffer_t buffer,
 
     tt::tt_metal::Tensor& src_tensor = *src_meta->tensor;
 
-    tt::tt_metal::Tensor ret = ttnn::zeros_like(src_tensor);
-    ret.deepcopy(src_tensor);
+    tt::tt_metal::Tensor ret = ttnn::identity(src_tensor);
     GGML_ASSERT(ret.storage_type() == tt::tt_metal::StorageType::DEVICE || ret.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE);
     dst_meta->tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(ret));
     dst_meta->ggtype = dst->type;
