@@ -38,6 +38,8 @@ target_include_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/${ARCH_NAME_N}
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/src/firmware/riscv/${ARCH_NAME_N}
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public/tracy
+    $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public/
 
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn/cpp
