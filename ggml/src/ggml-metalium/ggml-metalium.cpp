@@ -65,13 +65,13 @@
 #endif
 
 struct ggml_backend_metalium_context {
-    ttnn::device::Device* device = nullptr;
+    ttnn::IDevice* device = nullptr;
     int device_id = 0;
     std::string name;
 };
 
 struct ggml_backend_metalium_device_context {
-    ttnn::Device* device = nullptr; // TODO: Replace with DeviceMesh?
+    ttnn::IDevice* device = nullptr; // TODO: Replace with DeviceMesh?
     int device_id = -1;
     std::string name;
     std::string description;
@@ -87,7 +87,7 @@ struct ggml_backend_metalium_buffer_context {
 
     size_t ggml_buffer_size_bytes = 0;
     std::string name;
-    ttnn::device::Device* device = nullptr;
+    ttnn::IDevice* device = nullptr;
     size_t base_offset = 0;
 
     // Tracking our own allocations because Metalium limitations and GGML assuming them
@@ -164,7 +164,7 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
     }
 }
 
-static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::Device* device)
+static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::IDevice* device)
 {
     ttnn::DeviceComputeKernelConfig cfg;
     if(device->arch() == tt::ARCH::GRAYSKULL) {
@@ -248,13 +248,13 @@ static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
     for (; i + 8 <= n; i += 8) {
         __m256 fx = _mm256_loadu_ps(x + i);
         __m256i ix = _mm256_castps_si256(fx);
-        
+
         // Shift right by 16 bits to get the upper 16 bits of the float
         ix = _mm256_srli_epi32(ix, 16);
-        
+
         // Pack the 32-bit integers into 16-bit integers
         __m128i iy = _mm256_cvtepi32_epi16(ix);
-        
+
         // Store the result
         _mm_storeu_si128((__m128i*)(y + i), iy);
     }
@@ -262,18 +262,18 @@ static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
     for (i = 0; i + 4 <= n; i += 4) {
         __m128 fx = _mm_loadu_ps(x + i);
         __m128i ix = _mm_castps_si128(fx);
-        
+
         // Shift right by 16 bits to get the upper 16 bits of the float
         ix = _mm_srli_epi32(ix, 16);
-        
+
         // Pack the 32-bit integers into 16-bit integers
         ix = _mm_packus_epi32(ix, ix);
-        
+
         // Store the result
         _mm_storel_epi64((__m128i*)(y + i), ix);
     }
 #endif
-    
+
     // Handle remaining elements
     for (; i < n; i++) {
         uint32_t ix = *(const uint32_t*)(x + i);
@@ -563,7 +563,7 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
     return ttnn::reshape(tensor, ttnn::SimpleShape(target_shape));
 }
 
-static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::Device* device, const struct ggml_tensor * node)
+static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::IDevice* device, const struct ggml_tensor * node)
 {
     GGML_ASSERT(tensor.layout() == tt::tt_metal::Layout::ROW_MAJOR);
     GGML_ASSERT(tensor.storage_type() == tt::tt_metal::StorageType::OWNED || tensor.storage_type() == tt::tt_metal::StorageType::BORROWED);
@@ -690,7 +690,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         else if(ggml_n_dims(src0) == 1 && ggml_n_dims(tensor) > 1) {
             // slow: grab the source tensor and unpad it
             uint32_t offset_elements = offset / ggml_type_size(src0->type);
-            
+
             auto dst_volume = ggml_nelements(tensor);
             if(offset_elements % tt::constants::TILE_WIDTH == 0 && dst_volume % tt::constants::TILE_HEIGHT == 0
                 && false /*Does not work as slice wants the final dim to be tile aligned*/) {
@@ -739,7 +739,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             return t;
         }
 
-        std::array<int64_t, GGML_MAX_DIMS> permute_tt;
+        SmallVector<int64_t> permute_tt(GGML_MAX_DIMS);
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
@@ -1331,7 +1331,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             const uint32_t n_head_log2 = 1u << (uint32_t) std::floor(std::log2(n_head));
             const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
             const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
-            auto make_tile = [](const tt::tt_metal::Tensor& t, tt::tt_metal::Device* dev) {
+            auto make_tile = [](const tt::tt_metal::Tensor& t, ttnn::IDevice* dev) {
                 return ttnn::tilize_with_zero_padding(t.to(dev));
             };
 
@@ -1569,7 +1569,7 @@ static void ggml_backend_metalium_free(ggml_backend_t backend) {
 }
 
 struct ggml_backend_metalium_buffer_type_context {
-    ttnn::Device* device = nullptr;
+    ttnn::IDevice* device = nullptr;
     std::string name;
 };
 
@@ -1675,7 +1675,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
             storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
         // }
 
-        
+
     }
     // TODO: Add support for integer data types. Google's Gemma models seems to use them extensively
     else {
@@ -1689,7 +1689,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         shape[i] = tensor->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    std::optional<std::array<int64_t, GGML_MAX_DIMS>> permute;
+    std::optional<SmallVector<int64_t>> permute;
     // In case GGML sent us a non-contiguous tensor, we need to permute it to make it contiguous
     // We don't care about reshape as that doesn't make a difference in row-major layout
     // TODO: This code does not handle yucky cases like stries of [4, 8, 0, 0] but I assume GGML
@@ -1716,7 +1716,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         }
 
         // Now we can figure out the permutation that we need to apply
-        std::array<int64_t, GGML_MAX_DIMS> perm;
+        SmallVector<int64_t> perm(GGML_MAX_DIMS, -1);
         for(int i = 0; i < GGML_MAX_DIMS; i++) {
             perm[strides[i].second] = i;
         }
@@ -2095,11 +2095,11 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_ARANGE:
                 ggml_backend_metalium_arange(ctx, node);
                 break;
-            
+
             case GGML_OP_GROUP_NORM:
                 ggml_backend_metalium_group_norm(ctx, node);
                 break;
-            
+
             case GGML_OP_REPEAT:
                 ggml_backend_metalium_repeat(ctx, node);
                 break;
@@ -2240,7 +2240,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         // TTNN not using row-major layout.
         case GGML_OP_VIEW:
             return true;
-        
+
         case GGML_OP_SIN:     // Sin and Cos disabled on GS due to bug in TTNN until fixed
         case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
             return ctx->device->arch() != tt::ARCH::GRAYSKULL;
@@ -2310,7 +2310,7 @@ static ggml_guid_t ggml_backend_metalium_guid(void) {
 
 static ggml_backend_t ggml_backend_metalium_init(ggml_backend_metalium_device_context* dev_ctx) {
     int device_id = dev_ctx->device_id;
-    ttnn::Device* device = dev_ctx->device;
+    ttnn::IDevice* device = dev_ctx->device;
     GGML_ASSERT(device_id >= 0 && (size_t)device_id < tt::tt_metal::GetNumAvailableDevices());
     GGML_ASSERT(device != nullptr);
 
@@ -2431,7 +2431,7 @@ static const ggml_backend_device_i ggml_backend_metalium_device_interface = {
     /* .event_synchronize       = */ NULL,
 };
 
-static std::string identify_tensotrrent_device(const ttnn::Device* device)
+static std::string identify_tensotrrent_device(const ttnn::IDevice* device)
 {
     auto grid_size = device->compute_with_storage_grid_size();
     // TODO: Support mesh configurations
@@ -2474,7 +2474,7 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
         ctx->devices.reserve(num_devices);
         for(size_t device_id = 0; device_id < num_devices; device_id++) {
             ggml_backend_metalium_device_context * dev_ctx = new ggml_backend_metalium_device_context;
-            ttnn::Device* device = &ttnn::device::open_device(device_id);
+            ttnn::IDevice* device = &ttnn::device::open_device(device_id);
             ttnn::enable_program_cache(*device);
             // Limit device support to the ones I own
             GGML_ASSERT(device->arch() == tt::ARCH::GRAYSKULL || device->arch() == tt::ARCH::WORMHOLE_B0);
@@ -2493,7 +2493,7 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
             g_backend_device_context_holder.push_back(std::unique_ptr<ggml_backend_metalium_device_context>(dev_ctx));
             g_backend_device_holder.push_back(std::unique_ptr<ggml_backend_device>(dev));
         }
-        
+
         reg = ggml_backend_reg {
             /* .api_version = */ GGML_BACKEND_API_VERSION,
             /* .interface   = */ ggml_backend_metalium_reg_interface,
