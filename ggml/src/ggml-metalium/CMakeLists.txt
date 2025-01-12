@@ -1,9 +1,6 @@
 if("$ENV{TT_METAL_HOME}" STREQUAL "")
     message(FATAL_ERROR "TT_METAL_HOME is not set")
 endif()
-if("$ENV{ARCH_NAME}" STREQUAL "")
-    message(FATAL_ERROR "ARCH_NAME is not set")
-endif()
 
 message(STATUS "Metalium found.")
 # N stands for Normalized

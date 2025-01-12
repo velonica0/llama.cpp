@@ -50,7 +50,7 @@ ninja
 ninja install
 ```
 
-3. Build llama.cpp with `GGML_METALIUM=ON`. It will read the `TT_METAL_HOME` and `ARCH_NAME` variable above and error if they can not be detected. Likewise, the backend needs the environmental variables to function.
+3. Build llama.cpp with `GGML_METALIUM=ON`. It will read the `TT_METAL_HOME` variable above and error if not  detected. Likewise, the backend needs the environmental variables to function.
 
 ```bash
 cd /path/to/your/llama.cpp
@@ -65,6 +65,8 @@ make -j16
 **NOTE:** add the `-nkvo` flag to stop the KV cache being offloaded
 
 ```bash
+# ARCH_NAME is needed during runtime but not build time
+export ARCH_NAME=wormhole_b0 # or "grayskull" if you are using it
 bin/llama-cli -ngl 23 -m tinyllama-1.1b-chat-v1.0.Q4_0.gguf -p "The solution to Riemann hypothesis is" -nkvo
 ```
 
@@ -135,7 +137,7 @@ Besides the standard FP32 and BFP16 floating point support. Tenstorrent processo
 
 ### Debug flags
 
-There are several debug flags available to assist with debugging/performance of the backend. These flags are triggered by setting environment variables and will be removed eventually. 
+There are several debug flags available to assist with debugging/performance of the backend. These flags are triggered by setting environment variables and will be removed eventually.
 
 | Variable Name                    | Value           | Description                                                                                                                                                              |
 |----------------------------------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
