@@ -34,13 +34,13 @@ As mentioned earlier, the Metalium backend is experimental software. Thus featur
 There is no "supported" TTNN versions Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
 
 1. Setup you environment/driver following the [official guide](https://github.com/tenstorrent/tt-metal/blob/main/INSTALLING.md)
+  * As of writing, the official guide still references an old `ARCH_NAME` variable. Which is no longer needed during build (but needed at runtime)
 2. Build Metalium (and TTNN) with GCC (DO NOT use clang, they link against libc++ if clang is detected)
 
 
 ```bash
 cd /path/to/your/tt-metal
 export TT_METAL_HOME=`pwd`
-export ARCH_NAME=wormhole_b0 # or "grayskull" if you are using it
 mkdir build
 cd build
 cmake .. -DCMAKE_CXX_COMPILER=g++ -DCMAKE_C_COMPILER=gcc -DCMAKE_INSTALL_PREFIX=`pwd` -DCMAKE_BUILD_TYPE=Release -G Ninja
