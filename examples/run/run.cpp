@@ -1,5 +1,6 @@
 #if defined(_WIN32)
 #    include <windows.h>
+#    include <io.h>
 #else
 #    include <sys/file.h>
 #    include <sys/ioctl.h>
@@ -82,6 +83,7 @@ class Opt {
         }
 
         ctx_params.n_batch        = context_size >= 0 ? context_size : context_size_default;
+        ctx_params.n_ctx          = ctx_params.n_batch;
         model_params.n_gpu_layers = ngl >= 0 ? ngl : ngl_default;
         temperature               = temperature >= 0 ? temperature : temperature_default;
 
@@ -253,7 +255,7 @@ class File {
                 return 1;
             }
 
-            OVERLAPPED overlapped = { 0 };
+            OVERLAPPED overlapped = {};
             if (!LockFileEx(hFile, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, MAXDWORD, MAXDWORD,
                             &overlapped)) {
                 fd = -1;
@@ -277,7 +279,7 @@ class File {
         if (fd >= 0) {
 #    ifdef _WIN32
             if (hFile != INVALID_HANDLE_VALUE) {
-                OVERLAPPED overlapped = { 0 };
+                OVERLAPPED overlapped = {};
                 UnlockFileEx(hFile, 0, MAXDWORD, MAXDWORD, &overlapped);
             }
 #    else
@@ -293,7 +295,7 @@ class File {
   private:
     int fd = -1;
 #    ifdef _WIN32
-    HANDLE hFile;
+    HANDLE hFile = nullptr;
 #    endif
 };
 
@@ -464,7 +466,7 @@ class HttpClient {
         return (now_downloaded_plus_file_size * 100) / total_to_download;
     }
 
-    static std::string generate_progress_prefix(curl_off_t percentage) { return fmt("%3ld%% |", percentage); }
+    static std::string generate_progress_prefix(curl_off_t percentage) { return fmt("%3ld%% |", static_cast<long int>(percentage)); }
 
     static double calculate_speed(curl_off_t now_downloaded, const std::chrono::steady_clock::time_point & start_time) {
         const auto                          now             = std::chrono::steady_clock::now();
@@ -663,7 +665,7 @@ class LlamaData {
             "\r%*s"
             "\rLoading model",
             get_terminal_width(), " ");
-        llama_model_ptr model(llama_load_model_from_file(opt.model_.c_str(), opt.model_params));
+        llama_model_ptr model(llama_model_load_from_file(opt.model_.c_str(), opt.model_params));
         if (!model) {
             printe("%s: error: unable to load model from file: %s\n", __func__, opt.model_.c_str());
         }
