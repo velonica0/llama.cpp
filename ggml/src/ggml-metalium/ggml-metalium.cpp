@@ -1728,7 +1728,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
 
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
     // FIXME: Setting multi_core to true may cause a crash if the tensor is too large
-    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type, true);
+    t = ttnn::tilize_with_zero_padding(t.to(bufctx->device), std::nullopt, final_type);
     if(permute.has_value()) {
         t = ttnn::permute(t, permute.value());
     }
