@@ -865,7 +865,8 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
         ttnn::operations::matmul::Matmul cfg = ttnn::operations::matmul::Matmul{
             .compute_kernel_config = make_compute_kernel_config(a.device()),
             // XXX: Why output_tile doesn't have a default value?
-            .output_tile = std::nullopt
+            .output_tile = std::nullopt,
+            .global_cb = std::nullopt,
         };
         *cm = {
             .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::operations::matmul::matmul(b, aT, std::nullopt, cfg)),
