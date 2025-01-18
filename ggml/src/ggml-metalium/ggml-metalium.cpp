@@ -1,7 +1,3 @@
-#include "common/base_types.hpp"
-#include "common/bfloat16.hpp"
-#include "common/constants.hpp"
-#include "common/logger.hpp"
 #include "ggml-backend-impl.h"
 #include "ggml-backend.h"
 #include "ggml.h"
@@ -9,8 +5,6 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
-#include "host_api.hpp"
-#include "impl/dispatch/command_queue.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
@@ -50,8 +44,8 @@
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
 #include <ttnn/operations/copy.hpp>
-#include <tt_metal/detail/persistent_kernel_cache.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
+#include <tt-metalium/persistent_kernel_cache.hpp>
 
 
 #include <memory>

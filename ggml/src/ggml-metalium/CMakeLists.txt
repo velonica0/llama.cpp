@@ -26,6 +26,7 @@ target_include_directories(ggml-metalium PRIVATE
     # Metalium
     $ENV{TT_METAL_HOME}
     $ENV{TT_METAL_HOME}/tt_metal
+    $ENV{TT_METAL_HOME}/tt_metal/api
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
@@ -41,9 +42,8 @@ target_include_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/tt_metal/include
 
     # TTNN
+    $ENV{TT_METAL_HOME}/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp
-    $ENV{TT_METAL_HOME}/ttnn/cpp/ttnn/deprecated/
-    $ENV{TT_METAL_HOME}/tt_eager
     $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
 
     # Metalium extra includes
