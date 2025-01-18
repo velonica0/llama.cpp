@@ -439,7 +439,7 @@ struct llm_tokenizer_bpe_session {
                 "also starts with a BOS token. So now the final prompt starts with 2 BOS tokens. "
                 "Are you sure this is what you want?\n", __FUNCTION__);
         }
-        if (vocab.get_add_bos() && output.size() >= 2 && *(output.end()-2) == vocab.token_eos()) {
+        if (vocab.get_add_eos() && output.size() >= 2 && *(output.end()-2) == vocab.token_eos()) {
             LLAMA_LOG_WARN(
                 "%s: Added a EOS token to the prompt as specified by the model but the prompt "
                 "also ends with a EOS token. So now the final prompt ends with 2 EOS tokens. "
@@ -1356,8 +1356,9 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
 
             // read vocab size from metadata
             uint32_t n_tokens = 0;
-            if (!ml.get_key(LLM_KV_VOCAB_SIZE, n_tokens, false)) {
-                LLAMA_LOG_WARN("%s: there is no vocab_size in metadata\n", __func__);
+            if (ml.get_key(LLM_KV_VOCAB_SIZE, n_tokens, false)) {
+                LLAMA_LOG_WARN("%s: adding %u dummy tokens\n", __func__, n_tokens);
+                id_to_token.resize(n_tokens);
             }
 
             return;
@@ -1729,7 +1730,7 @@ void llama_vocab::impl::load(llama_model_loader & ml, const LLM_KV & kv) {
                 continue;
             }
             if (new_id >= id_to_token.size()) {
-                LLAMA_LOG_WARN("%s: bad special token: '%s' = %ud, using default id %d\n",
+                LLAMA_LOG_WARN("%s: bad special token: '%s' = %u, using default id %d\n",
                     __func__, key.c_str(), new_id, id);
             } else {
                 id = new_id;

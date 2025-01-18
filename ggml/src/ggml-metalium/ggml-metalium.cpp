@@ -5,6 +5,7 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
+#include "tt-metalium/logger.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
@@ -1524,7 +1525,7 @@ static bool ggml_backend_metalium_can_outer_product(const struct ggml_tensor * d
         }
         return num_ones;
     };
-    return num_ones_in_shape(dst->src[0]) >= 3 && num_ones_in_shape(dst->src[1]) >= 3;
+    return num_ones_in_shape(dst->src[0]) == 3 && num_ones_in_shape(dst->src[1]) == 3;
 }
 
 static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
@@ -2260,8 +2261,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
-        case GGML_OP_OUT_PROD:
-            return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
+        // case GGML_OP_OUT_PROD: // BUG: https://github.com/tenstorrent/tt-metal/issues/16882
+        //     return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         default:
             return false;
     }
