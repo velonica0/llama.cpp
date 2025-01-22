@@ -1847,7 +1847,7 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
     if(name.contains("cache") && tensor->op == GGML_OP_NONE) {
         std::vector<uint32_t> shape(tensor->ne, tensor->ne + GGML_MAX_DIMS);
         std::reverse(shape.begin(), shape.end());
-        auto t = ttnn::zeros(ttnn::Shape(shape), ggml2tt_type(tensor->type, bufctx->device->arch()), tt::tt_metal::Layout::ROW_MAJOR);
+        auto t = ttnn::zeros(ttnn::SimpleShape(shape), ggml2tt_type(tensor->type, bufctx->device->arch()), tt::tt_metal::Layout::ROW_MAJOR);
         t = ttnn::tilize_with_zero_padding(t.to(bufctx->device));
         meta->tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(t));
     }
