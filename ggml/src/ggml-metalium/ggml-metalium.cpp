@@ -1719,7 +1719,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         permute = perm;
     }
 
-    tt::tt_metal::Tensor t(std::move(storage), ttnn::Shape(shape)
+    tt::tt_metal::Tensor t(std::move(storage), ttnn::SimpleShape(shape)
         , intermidiate_type, tt::tt_metal::Layout::ROW_MAJOR);
 
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
@@ -1844,7 +1844,7 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
 
     // HACK: Make KV cache work
     std::string_view name(tensor->name);
-    if(name.contains("cache") && tensor->op == GGML_OP_NONE) {
+    if(strstr(std::string(name).c_str(), "cache") != NULL && tensor->op == GGML_OP_NONE) {
         std::vector<uint32_t> shape(tensor->ne, tensor->ne + GGML_MAX_DIMS);
         std::reverse(shape.begin(), shape.end());
         auto t = ttnn::zeros(ttnn::SimpleShape(shape), ggml2tt_type(tensor->type, bufctx->device->arch()), tt::tt_metal::Layout::ROW_MAJOR);
