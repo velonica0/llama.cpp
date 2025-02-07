@@ -2366,15 +2366,12 @@ static const char * ggml_backend_metalium_device_get_description(ggml_backend_de
 
 static void ggml_backend_metalium_get_memory(ggml_backend_dev_t dev, size_t * total, size_t * free) {
     GGML_UNUSED(dev);
-    // ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
-    // size_t num_dram_channels = ctx->device->num_dram_channels();
-    // auto stats = ctx->device->get_memory_allocation_statistics(tt::tt_metal::BufferType::DRAM);
+    ggml_backend_metalium_device_context * ctx = (ggml_backend_metalium_device_context *)dev->context;
+    size_t num_dram_channels = ctx->device->num_dram_channels();
+    auto stats = ctx->device->allocator()->get_statistics(tt::tt_metal::BufferType::DRAM);
 
-    // *total = stats.total_allocatable_size_bytes * num_dram_channels;
-    // *free = stats.total_free_bytes * num_dram_channels;
-    // HACK: TT got rid of the memory allocation statistics so we just fake it for now
-    *total = 12ULL * 1024 * 1024 * 1024;
-    *free = 12ULL * 1024 * 1024 * 1024;
+    *total = stats.total_allocatable_size_bytes * num_dram_channels;
+    *free = stats.total_free_bytes * num_dram_channels;
 }
 
 static enum ggml_backend_dev_type ggml_backend_metalium_get_type(ggml_backend_dev_t dev) {
