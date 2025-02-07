@@ -4417,7 +4417,6 @@ void kernel_mul_mv_q2_K_f32_impl(
         device const half     * dh = &x[ib].d;
 
         for (int row = 0; row < N_DST; row++) {
-
             float4 acc1 = {0.f, 0.f, 0.f, 0.f};
             float4 acc2 = {0.f, 0.f, 0.f, 0.f};
             for (int i = 0; i < 8; i += 2) {
@@ -4448,7 +4447,7 @@ void kernel_mul_mv_q2_K_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -4614,7 +4613,7 @@ void kernel_mul_mv_q3_K_f32_impl(
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
     if (tiisg == 0) {
-        for (int row = 0; row < 2; ++row) {
+        for (int row = 0; row < 2 && first_row + row < args.ne0; ++row) {
             dst_f32[first_row + row] = sumf1[row];
         }
     }
@@ -4730,7 +4729,7 @@ void kernel_mul_mv_q4_K_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (int64_t)im*args.ne0*args.ne1 + (int64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -4862,7 +4861,7 @@ void kernel_mul_mv_q5_K_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < 2; ++row) {
+    for (int row = 0; row < 2 && first_row + row < args.ne0; ++row) {
         const float tot = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = tot;
@@ -4906,6 +4905,10 @@ void kernel_mul_mv_q6_K_f32_impl(
     const int im = tgpig.z;
 
     const int row = 2*r0 + sgitg;
+
+    if (row >= args.ne0) {
+        return;
+    }
 
     const uint i12 = im%args.ne12;
     const uint i13 = im/args.ne12;
@@ -5062,7 +5065,7 @@ void kernel_mul_mv_iq2_xxs_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum * 0.25f;
@@ -5180,7 +5183,7 @@ void kernel_mul_mv_iq2_xs_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum * 0.25f;
@@ -5290,7 +5293,7 @@ void kernel_mul_mv_iq3_xxs_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum * 0.5f;
@@ -5402,7 +5405,7 @@ void kernel_mul_mv_iq3_s_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -5515,7 +5518,7 @@ void kernel_mul_mv_iq2_s_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum * 0.25f;
@@ -5615,7 +5618,7 @@ void kernel_mul_mv_iq1_s_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -5710,7 +5713,7 @@ void kernel_mul_mv_iq1_m_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < N_DST; ++row) {
+    for (int row = 0; row < N_DST && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -5800,7 +5803,7 @@ void kernel_mul_mv_iq4_nl_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < 2 && first_row + row < args.ne01; ++row) {
+    for (int row = 0; row < 2 && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
@@ -5889,7 +5892,7 @@ void kernel_mul_mv_iq4_xs_f32_impl(
 
     device float * dst_f32 = (device float *) dst + (uint64_t)im*args.ne0*args.ne1 + (uint64_t)r1*args.ne0;
 
-    for (int row = 0; row < 2; ++row) {
+    for (int row = 0; row < 2 && first_row + row < args.ne0; ++row) {
         all_sum = simd_sum(sumf[row]);
         if (tiisg == 0) {
             dst_f32[first_row + row] = all_sum;
