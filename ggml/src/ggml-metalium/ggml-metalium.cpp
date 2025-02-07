@@ -1491,7 +1491,8 @@ static void ggml_backend_metalium_repeat(ggml_backend_metalium_context * ctx, st
     ggml_tensor* src0 = dst->src[0];
 
     auto tensor = realize_ggml_view(dst->src[0]);
-    ttnn::Shape repeats;
+    ttnn::SmallVector<uint32_t> repeats;
+    repeats.resize(GGML_MAX_DIMS);
     int ndiff = 0;
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         auto repeat = dst->ne[i] / src0->ne[i];
@@ -1507,7 +1508,7 @@ static void ggml_backend_metalium_repeat(ggml_backend_metalium_context * ctx, st
         return;
     }
 
-    auto res = ttnn::repeat(*tensor, repeats);
+    auto res = ttnn::repeat(*tensor, ttnn::Shape(repeats));
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
         .ggtype = dst->type,
