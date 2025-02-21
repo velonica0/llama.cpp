@@ -13,7 +13,6 @@
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
-#include "ttnn/tensor/shape/small_vector.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include <algorithm>
@@ -735,7 +734,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             return t;
         }
 
-        SmallVector<int64_t> permute_tt(GGML_MAX_DIMS);
+        ttnn::SmallVector<int64_t> permute_tt(GGML_MAX_DIMS);
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
@@ -1687,7 +1686,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         shape[i] = tensor->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    std::optional<SmallVector<int64_t>> permute;
+    std::optional<ttnn::SmallVector<int64_t>> permute;
     // In case GGML sent us a non-contiguous tensor, we need to permute it to make it contiguous
     // We don't care about reshape as that doesn't make a difference in row-major layout
     // TODO: This code does not handle yucky cases like stries of [4, 8, 0, 0] but I assume GGML
@@ -1714,7 +1713,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         }
 
         // Now we can figure out the permutation that we need to apply
-        SmallVector<int64_t> perm(GGML_MAX_DIMS, -1);
+        ttnn::SmallVector<int64_t> perm(GGML_MAX_DIMS, -1);
         for(int i = 0; i < GGML_MAX_DIMS; i++) {
             perm[strides[i].second] = i;
         }
