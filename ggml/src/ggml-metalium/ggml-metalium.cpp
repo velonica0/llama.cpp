@@ -5,7 +5,9 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
+#include "hostdevcommon/kernel_structs.h"
 #include "tt-metalium/logger.hpp"
+#include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
@@ -15,6 +17,7 @@
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "types/arch.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -279,7 +282,7 @@ static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
 static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH arch) {
     // This table is consulted to map GGML types to TT types dueing tensor creation
     // TODO: Separate Wormhole out, it supports more types
-    if(arch == tt::ARCH::GRAYSKULL || arch == tt::ARCH::WORMHOLE_B0) {
+    if(arch == tt::ARCH::GRAYSKULL) {
         static constexpr std::array<tt::tt_metal::DataType, GGML_TYPE_COUNT> table = {
             /*GGML_TYPE_F32 = */ tt::tt_metal::DataType::BFLOAT16,
             /*GGML_TYPE_F16 = */ tt::tt_metal::DataType::BFLOAT16,
@@ -308,6 +311,48 @@ static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH a
             /*GGML_TYPE_I8 = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_I16 = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_I32 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_I64 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_F64 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ1_M = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_BF16 = */ tt::tt_metal::DataType::BFLOAT16,
+            /*GGML_TYPE_Q4_0_4_4 = */ tt::tt_metal::DataType::INVALID, // Untested from this point on
+            /*GGML_TYPE_Q4_0_4_8 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_Q4_0_8_8 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_TQ1_0   = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_TQ2_0   = */ tt::tt_metal::DataType::INVALID,
+        };
+        tt::tt_metal::DataType type = table[ggtype];
+        return type;
+    }
+    if(arch == tt::ARCH::WORMHOLE_B0) {
+        static constexpr std::array<tt::tt_metal::DataType, GGML_TYPE_COUNT> table = {
+            /*GGML_TYPE_F32 = */ tt::tt_metal::DataType::BFLOAT16,
+            /*GGML_TYPE_F16 = */ tt::tt_metal::DataType::BFLOAT16,
+            /*GGML_TYPE_Q4_0 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Using BFLOAT8_B for now as BFLOAT4_B is not accurate enough
+            /*GGML_TYPE_Q4_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
+            tt::tt_metal::DataType::INVALID,
+            tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_Q5_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
+            /*GGML_TYPE_Q8_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_Q8_1 = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_Q2_K = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_Q3_K = */ tt::tt_metal::DataType::BFLOAT8_B,   // Using BFLOAT8_B for now as BFLOAT4_B is not accurate enough
+            /*GGML_TYPE_Q4_K = */ tt::tt_metal::DataType::BFLOAT8_B,   // Using BFLOAT8_B for now as BFLOAT4_B is not accurate enough
+            /*GGML_TYPE_Q5_K = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_Q6_K = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_Q8_K = */ tt::tt_metal::DataType::BFLOAT8_B,
+            /*GGML_TYPE_IQ2_XXS = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ2_XS = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ3_XXS = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ1_S = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ4_NL = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ3_S = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ2_S = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_IQ4_XS = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_I8 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_I16 = */ tt::tt_metal::DataType::INVALID,
+            /*GGML_TYPE_I32 = */ tt::tt_metal::DataType::UINT32, // Yeah not ideal. but don't have support for tilizing int32 on device
             /*GGML_TYPE_I64 = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_F64 = */ tt::tt_metal::DataType::INVALID,
             /*GGML_TYPE_IQ1_M = */ tt::tt_metal::DataType::INVALID,
@@ -361,8 +406,8 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
     // Convert from  GGML types to TT types
-    static_assert(std::is_same_v<Src, float> || std::is_same_v<Src, ggml_bf16_t> || std::is_same_v<Src, ggml_fp16_t>);
-    static_assert(std::is_same_v<Dst, float> || std::is_same_v<Dst, bfloat16>);
+    static_assert(std::is_same_v<Src, float> || std::is_same_v<Src, ggml_bf16_t> || std::is_same_v<Src, ggml_fp16_t> || std::is_same_v<Src, int>);
+    static_assert(std::is_same_v<Dst, float> || std::is_same_v<Dst, bfloat16> || std::is_same_v<Dst, uint32_t>);
 
     auto src_adaptor = [](const SrcType& src) -> float {
         if constexpr(std::is_same_v<Src, ggml_fp16_t>) {
@@ -374,6 +419,9 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
         else if constexpr(std::is_same_v<Src, float>) {
             return src;
         }
+        else if constexpr(std::is_same_v<Src, int>) {
+            return static_cast<float>(src);
+        }
         GGML_UNREACHABLE();
     };
 
@@ -383,6 +431,12 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
         }
         else if constexpr(std::is_same_v<Dst, float>) {
             dst = val;
+        }
+        else if constexpr(std::is_same_v<Dst, int>) {
+            dst = static_cast<int>(val);
+        }
+        else if constexpr(std::is_same_v<Dst, uint32_t>) {
+            dst = static_cast<uint32_t>(val);
         }
         else {
             GGML_UNREACHABLE();
@@ -429,7 +483,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     // Converts TT tensors to GGML types
     ttnn::Shape shape = tensor.logical_shape();
     ttnn::Shape padded_shape = tensor.padded_shape();
-    static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16>);
+    static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16> || std::is_same_v<SrcType, uint32_t>);
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
     GGML_ASSERT(row_major_tensor.storage_type() == StorageType::OWNED or row_major_tensor.storage_type() == StorageType::BORROWED);
@@ -472,6 +526,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     else if ((std::is_same_v<SrcType, float> && dst_ggtype == GGML_TYPE_F32) ||
              (std::is_same_v<SrcType, bfloat16> && dst_ggtype == GGML_TYPE_BF16) ||
              (std::is_same_v<SrcType, int32_t> && dst_ggtype == GGML_TYPE_I32) ||
+             (std::is_same_v<SrcType, uint32_t> && dst_ggtype == GGML_TYPE_I32) ||
              (std::is_same_v<SrcType, int16_t> && dst_ggtype == GGML_TYPE_I16) ||
              (std::is_same_v<SrcType, int8_t> && dst_ggtype == GGML_TYPE_I8)) {
         intermid = (void*)dst;
@@ -1658,6 +1713,10 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     else if (ggtype == GGML_TYPE_BF16) {
         storage = data2borroweded_storage<ggml_bf16_t, bfloat16>((const ggml_bf16_t*)data, size / sizeof(ggml_bf16_t));
     }
+    else if (ggtype == GGML_TYPE_I32) {
+        storage = data2borroweded_storage<int, uint32_t>((const int*)data, size / sizeof(int));
+        intermidiate_type = tt::tt_metal::DataType::UINT32;
+    }
     else if (source_is_quantized) {
         // TT hardware has it's own quantized data types. We need to convert the data to the correct format. GGML nativly supports
         // decoding quantized data to FP32. So on hardware that supports FP32, it is faster to convert the data to FP32, then let the
@@ -1676,8 +1735,8 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
     }
     // TODO: Add support for integer data types. Google's Gemma models seems to use them extensively
     else {
-        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
-        GGML_ASSERT(false && "Unsupported data type");
+        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type while uploading to device: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
+        GGML_ASSERT(false && "Unsupported data type while uploading to device");
     }
 
     std::vector<uint32_t> shape(GGML_MAX_DIMS, 1);
@@ -1804,18 +1863,21 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
         GGML_ASSERT(ggml_tt_tensors_shape_equal(tensor, *t));
     }
     GGML_ASSERT(t->layout() == tt::tt_metal::Layout::TILE);
-    if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 || t->dtype() != tt::tt_metal::DataType::FLOAT32) {
+    if(t->dtype() != tt::tt_metal::DataType::BFLOAT16 && t->dtype() != tt::tt_metal::DataType::FLOAT32 && t->dtype() != tt::tt_metal::DataType::UINT32) {
         t = std::make_shared<tt::tt_metal::Tensor>(ttnn::typecast(*t, tt::tt_metal::DataType::BFLOAT16));
     }
 
     // TODO: Proper handling of data types
-    GGML_ASSERT(dst_ggtype != GGML_TYPE_F64 && dst_ggtype != GGML_TYPE_I16 && dst_ggtype != GGML_TYPE_I8 && dst_ggtype != GGML_TYPE_I32);
+    GGML_ASSERT(dst_ggtype != GGML_TYPE_F64 && dst_ggtype != GGML_TYPE_I16 && dst_ggtype != GGML_TYPE_I8);
     switch(t->dtype()) {
         case tt::tt_metal::DataType::BFLOAT16:
             tensor2ggml<bfloat16>(*t, (float*)data, queue, dst_ggtype);
             break;
         case tt::tt_metal::DataType::FLOAT32:
             tensor2ggml<float>(*t, (float*)data, queue, dst_ggtype);
+            break;
+        case tt::tt_metal::DataType::UINT32:
+            tensor2ggml<uint32_t>(*t, (int*)data, queue, dst_ggtype);
             break;
         default:
             GGML_ASSERT(false && "Unsupported data type in TT tensor when converting to GGML tensor");

@@ -380,6 +380,12 @@ int main()
     }, "CONT on real tesnor"));
 
     tests.push_back(make_test([](ggml_context* ctx) {
+        ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_I32, 64, 64);
+        ggml_tensor* b = ggml_cont(ctx, a);
+        return b;
+    }, "CONT on integer tesnor"));
+
+    tests.push_back(make_test([](ggml_context* ctx) {
         ggml_tensor* a = ggml_new_tensor_2d(ctx, GGML_TYPE_F32, 64, 64);
         ggml_tensor* view = ggml_view_2d(ctx, a, 64, 64, a->nb[1], 0);
         ggml_tensor* b = ggml_cont(ctx, view);
