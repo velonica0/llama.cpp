@@ -1172,28 +1172,29 @@ static void ggml_backend_metalium_scale(ggml_backend_metalium_context * ctx, str
     };
 }
 
-static bool ggml_backend_metalium_can_get_row(const struct ggml_tensor * dst)
+static bool ggml_backend_metalium_can_get_rows(const struct ggml_tensor * dst)
 {
     const ggml_tensor *idxs = dst->src[1];
     if(idxs->ne[0] != 1 || idxs->ne[1] != 1 || idxs->ne[2] != 1 || idxs->ne[3] != 1) {
         return false;
     }
+    if(ggml_n_dims(dst->src[0]) != 1) {
+        return false;
+    }
     return true;
 }
 
-static void ggml_backend_metalium_get_row(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+static void ggml_backend_metalium_get_rows(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
 {
     GGML_UNUSED(ctx);
     GGML_METALIUM_OP_SANITY_CHECK(dst);
     GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
 
     TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
-    uint32_t idx = *(uint32_t*)dst->src[1]->data;
 
     auto t = realize_ggml_view(dst->src[0]);
-    auto res = ttnn::experimental::nlp_kv_cache_load_slice(*t, idx, idx + 1);
     *dst_meta = {
-        .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
+        .tensor = t,
         .ggtype = dst->type,
         .bufctx = ((TensorWithMetadata*)dst->src[0]->extra)->bufctx
     };
@@ -2108,7 +2109,7 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
                 break;
 
             case GGML_OP_GET_ROWS:
-                ggml_backend_metalium_get_row(ctx, node);
+                ggml_backend_metalium_get_rows(ctx, node);
                 break;
 
             case GGML_OP_NORM:
@@ -2319,7 +2320,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_SOFT_MAX:
             return ggml_backend_metalium_can_softmax(op);
         case GGML_OP_GET_ROWS:
-            return tensor_supported(src1) && ggml_backend_metalium_can_get_row(op);
+            return tensor_supported(src1) && ggml_backend_metalium_can_get_rows(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
         case GGML_OP_REPEAT:
