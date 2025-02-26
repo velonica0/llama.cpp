@@ -50,6 +50,7 @@
 #include <ttnn/operations/copy.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 #include <tt-metalium/persistent_kernel_cache.hpp>
+#include <ttnn/operations/data_movement/reshape_view/reshape.cpp>
 
 
 #include <memory>
@@ -759,7 +760,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         // The fast path, this is what TTNN is designed for
         else if(start[2] % tt::constants::TILE_WIDTH == 0 && start[3] % tt::constants::TILE_HEIGHT == 0) {
             std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
-            res = ttnn::slice(*parent, start, end, step, tt::tt_metal::MemoryConfig());
+            res = ttnn::slice(*parent, start, end, step);
         }
         // Unpad on the CPU and then pad back on the device
         else {
