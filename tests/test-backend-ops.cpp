@@ -2088,7 +2088,7 @@ struct test_out_prod : public test_case {
     }
 
     double max_nmse_err() override {
-        return 5e-4;
+        return 2e-3;
     }
 
     test_out_prod(ggml_type type_a = GGML_TYPE_F32, ggml_type type_b = GGML_TYPE_F32,

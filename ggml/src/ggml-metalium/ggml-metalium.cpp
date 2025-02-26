@@ -1598,7 +1598,7 @@ static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * 
     auto src0 = realize_ggml_view(dst->src[0]);
     auto src1 = realize_ggml_view(dst->src[1]);
 
-    auto res = ttnn::outer(*src0, *src1);
+    auto res = ttnn::outer(*src1, *src0);
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
         .ggtype = dst->type,
@@ -2325,8 +2325,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
-        // case GGML_OP_OUT_PROD: // BUG: https://github.com/tenstorrent/tt-metal/issues/16882
-        //     return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
+        case GGML_OP_OUT_PROD: // BUG: https://github.com/tenstorrent/tt-metal/issues/16882
+            return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         default:
             return false;
     }
