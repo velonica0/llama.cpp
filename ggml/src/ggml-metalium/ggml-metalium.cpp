@@ -757,8 +757,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             }
         }
         // The fast path, this is what TTNN is designed for
-        else if(dst_size[0] % tt::constants::TILE_WIDTH == 0 && dst_size[1] % tt::constants::TILE_HEIGHT == 0 &&
-            start[2] % tt::constants::TILE_WIDTH == 0 && start[3] % tt::constants::TILE_HEIGHT == 0) {
+        else if(start[2] % tt::constants::TILE_WIDTH == 0 && start[3] % tt::constants::TILE_HEIGHT == 0) {
             std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
             res = ttnn::slice(*parent, start, end, step, tt::tt_metal::MemoryConfig());
         }
