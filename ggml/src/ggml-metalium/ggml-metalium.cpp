@@ -1514,14 +1514,13 @@ static void ggml_backend_metalium_group_norm(ggml_backend_metalium_context * ctx
 
 static bool ggml_backend_metalium_can_repeat(const struct ggml_tensor * dst)
 {
+    // TODO: File bug report that repear op should support UINT32
+    if(dst->type == GGML_TYPE_I32) {
+        return false;
+    }
     ggml_tensor *src0 = dst->src[0];
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         if(dst->ne[i] % src0->ne[i] != 0) {
-            return false;
-        }
-
-        // FIXME: TTNN has trouble repeating if the first 2 dimensions are not the same
-        if(i < 2 && dst->ne[i] / src0->ne[i] != 1) {
             return false;
         }
     }
@@ -2287,9 +2286,6 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_PERMUTE:
         case GGML_OP_LOG:
         case GGML_OP_GROUP_NORM:
-        // TTNN can really only do unpad() so the source rank must be greater than or equal to the destination rank
-        // and must not be permuted as that's a sign of it being reshaped from another tensor. Which is costly due to
-        // TTNN not using row-major layout.
         case GGML_OP_VIEW:
             return true;
 
@@ -2317,7 +2313,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
         case GGML_OP_REPEAT:
             return ggml_backend_metalium_can_repeat(op);
-        case GGML_OP_OUT_PROD: // BUG: https://github.com/tenstorrent/tt-metal/issues/16882
+        case GGML_OP_OUT_PROD:
             return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         default:
             return false;
