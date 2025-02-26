@@ -691,6 +691,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         if(dst_size == src_size && dst_stride == src_stride && offset == 0) {
             return parent;
         }
+        //TODO: Handle strided views (seems to be unused in the current codebase)
         std::array<uint32_t, GGML_MAX_DIMS> start;
         std::array<uint32_t, GGML_MAX_DIMS> end;
 
@@ -739,25 +740,16 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         }
         // Trying to convert a flat 1D tensor to N-D tensor (potentially with an offset)
         else if(ggml_n_dims(src0) == 1 && ggml_n_dims(tensor) > 1) {
-            // slow: grab the source tensor and unpad it
+            // grab the source tensor, slice out the relevant part, and reshape it
             uint32_t offset_elements = offset / ggml_type_size(src0->type);
-
-            auto dst_volume = ggml_nelements(tensor);
-            if(offset_elements % tt::constants::TILE_WIDTH == 0 && dst_volume % tt::constants::TILE_HEIGHT == 0
-                && false /*Does not work as slice wants the final dim to be tile aligned*/) {
-                std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
-                auto t = ttnn::slice(*parent, start, end, step, tt::tt_metal::MemoryConfig());
-                res = reshape_tt_tensor_into_ggml(t, tensor);
-            }
-            else {
-                // THIS is EXTREMELY SLOW. But it works
-                ttnn::Shape start{0, 0, 0, offset_elements};
-                ttnn::Shape end({1, 1, 1, uint32_t(dst_volume) + offset_elements});
-                tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(start, end);
-                res = reshape_host_tt_tensor_into_ggml(tmp, parent->device(), tensor);
-            }
+            uint32_t dst_volume = (uint32_t)ggml_nelements(tensor);
+            std::array<uint32_t, GGML_MAX_DIMS> start{0, 0, 0, offset_elements};
+            std::array<uint32_t, GGML_MAX_DIMS> end({1, 1, 1, dst_volume + offset_elements});
+            std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
+            tt::tt_metal::Tensor tmp = ttnn::slice(*parent, start, end, step);
+            res = reshape_tt_tensor_into_ggml(tmp, tensor);
         }
-        // The fast path, this is what TTNN is designed for
+        // The fast path, this is what TTNN is designed for (direct slicing)
         else if(start[2] % tt::constants::TILE_WIDTH == 0 && start[3] % tt::constants::TILE_HEIGHT == 0) {
             std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
             res = ttnn::slice(*parent, start, end, step);
