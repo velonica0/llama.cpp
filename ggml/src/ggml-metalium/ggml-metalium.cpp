@@ -9,6 +9,7 @@
 #include "tt-metalium/logger.hpp"
 #include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
+#include "ttnn/operations/data_movement/tilize/tilize.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -652,8 +653,8 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
 
     // Do we really need to lazy evaluate this? Currently transpose is eagerly evaluated
     if(op == GGML_OP_TRANSPOSE) {
-        auto patent = realize_ggml_view(src0);
-        auto res = ttnn::transpose(*patent, -2, -1);
+        auto parent = realize_ggml_view(src0);
+        auto res = ttnn::transpose(*parent, -2, -1);
         return std::make_shared<tt::tt_metal::Tensor>(res);
     }
     if(op == GGML_OP_VIEW) {
@@ -790,21 +791,24 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         return std::make_shared<tt::tt_metal::Tensor>(std::move(res));
     }
 
-    if(TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra; meta != nullptr && meta->tensor != nullptr) {
+    TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
+    GGML_ASSERT(meta != nullptr);
+    if(meta != nullptr && meta->tensor != nullptr) {
         return meta->tensor;
     }
 
-    // TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
-    // std::cerr << "meta = " << (void*)meta << std::endl;
-    // std::cerr << "meta->tensor = " << (void*)(meta->tensor.get()) << std::endl;
-    // std::cout << "tensor->name = " << tensor->name << std::endl;
-    // std::cout << "tensor->op = " << ggml_op_name(tensor->op) << std::endl;
-    GGML_ASSERT(is_view(tensor));
-    GGML_ASSERT(tensor->view_src != nullptr);
+    if(is_view(tensor) && tensor->view_src != nullptr) {
+        // recursivly resolve the source tensor
+        return realize_ggml_view(tensor->view_src);
+    }
 
-    // recursivly resolve the source tensor
-    // TODO: Should it even reach here?
-    return realize_ggml_view(tensor->view_src);
+    // HACK: Fallback path: if somehow the framework does not set the real tensor, we can make our own
+    auto tt_type = ggml2tt_type(tensor->type, meta->bufctx->device->arch());
+    auto shape = ttnn::Shape({uint32_t(tensor->ne[3]), uint32_t(tensor->ne[2]), uint32_t(tensor->ne[1]), uint32_t(tensor->ne[0])});
+    auto res = ttnn::tilize_with_zero_padding(ttnn::zeros(shape, tt_type).to_device(meta->bufctx->device));
+    meta->tensor = std::make_shared<tt::tt_metal::Tensor>(res);
+    meta->ggtype = tensor->type;
+    return meta->tensor;
 }
 
 // Sanity check macros to ensure that the tensors are in the correct format and we won't crash
