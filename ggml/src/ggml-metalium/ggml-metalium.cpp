@@ -2540,8 +2540,8 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
     static ggml_backend_reg reg;
     static std::once_flag once;
     std::call_once(once, [&]() {
-        if(getenv("TT_METAL_HOME") == NULL || getenv("ARCH_NAME") == NULL) {
-            tt::log_fatal(tt::LogType::LogAlways, "TT_METAL_HOME and ARCH_NAME environment variables must be set to use the Metalium backend");
+        if(getenv("TT_METAL_HOME") == NULL) {
+            tt::log_fatal(tt::LogType::LogAlways, "The TT_METAL_HOME environment variables must be set to use the Metalium backend");
             abort();
         }
         tt::tt_metal::detail::EnablePersistentKernelCache();

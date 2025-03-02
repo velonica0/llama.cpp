@@ -34,7 +34,7 @@ As mentioned earlier, the Metalium backend is experimental software. Thus featur
 There is no "supported" TTNN versions Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
 
 1. Setup you environment/driver following the [official guide](https://github.com/tenstorrent/tt-metal/blob/main/INSTALLING.md)
-  * As of writing, the official guide still references an old `ARCH_NAME` variable. Which is no longer needed during build (but needed at runtime)
+  * As of writing, the official guide still references an old `ARCH_NAME` variable. Which is no longer needed
 2. Build Metalium (and TTNN) with GCC (DO NOT use clang, they link against libc++ if clang is detected)
 
 
@@ -65,8 +65,6 @@ make -j16
 **NOTE:** add the `-nkvo` flag to stop the KV cache being offloaded
 
 ```bash
-# ARCH_NAME is needed during runtime but not build time
-export ARCH_NAME=wormhole_b0 # or "grayskull" if you are using it
 bin/llama-cli -ngl 23 -m tinyllama-1.1b-chat-v1.0.Q4_0.gguf -p "The solution to Riemann hypothesis is" -nkvo
 ```
 
@@ -131,7 +129,6 @@ Besides the standard FP32 and BFP16 floating point support. Tenstorrent processo
 | Variable Name | Value                                | Description                                                          |
 |---------------|--------------------------------------|----------------------------------------------------------------------|
 | TT_METAL_HOME | string  (mandatory)                  | Path to the repository which tt-metal is built                       |
-| ARCH_NAME     | wormhole_b0 \| grayskull (mandatory) | Archicture of the processor. Must be the same when tt-metal is built |
 
 
 
