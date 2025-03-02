@@ -53,6 +53,7 @@
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 #include <tt-metalium/persistent_kernel_cache.hpp>
 #include <ttnn/operations/data_movement/reshape_view/reshape.cpp>
+#include <ttnn/operations/reduction/generic/generic_reductions.hpp>
 
 
 #include <memory>
@@ -520,7 +521,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     bool need_quantized_conversion = false;
     bool src_dst_same = false;
     if(dst_ggtype == GGML_TYPE_F32 && !std::is_same_v<SrcType, float>) {
-        intermid = (void*)dst;
+        intermid = dst;
         need_quantized_conversion = false;
         src_dst_same = false;
     }
@@ -532,7 +533,7 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
              (std::is_same_v<SrcType, uint32_t> && dst_ggtype == GGML_TYPE_I32) ||
              (std::is_same_v<SrcType, int16_t> && dst_ggtype == GGML_TYPE_I16) ||
              (std::is_same_v<SrcType, int8_t> && dst_ggtype == GGML_TYPE_I8)) {
-        intermid = (void*)dst;
+        intermid = dst;
         need_quantized_conversion = false;
         src_dst_same = true;
     }
@@ -1601,6 +1602,37 @@ static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * 
         .bufctx = src0_meta->bufctx
     };
 }
+static void ggml_backend_metalium_sum(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+
+    auto t = realize_ggml_view(dst->src[0]);
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::sum(*t)),
+        .ggtype = dst->type,
+        .bufctx = ((TensorWithMetadata*)dst->src[0]->extra)->bufctx
+    };
+}
+
+static void ggml_backend_metalium_sum_rows(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+
+    auto t = realize_ggml_view(dst->src[0]);
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::sum(*t, 3)),
+        .ggtype = dst->type,
+        .bufctx = ((TensorWithMetadata*)dst->src[0]->extra)->bufctx
+    };
+}
 
 // backend interface
 
@@ -2144,6 +2176,14 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
                 ggml_backend_metalium_repeat(ctx, node);
                 break;
 
+            case GGML_OP_SUM:
+                ggml_backend_metalium_sum(ctx, node);
+                break;
+
+            case GGML_OP_SUM_ROWS:
+                ggml_backend_metalium_sum_rows(ctx, node);
+                break;
+
             case GGML_OP_NONE:
                 break;
 
@@ -2276,6 +2316,10 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_LOG:
         case GGML_OP_GROUP_NORM:
         case GGML_OP_VIEW:
+        // SUM{_ROWS} technically works but supprts_op rejects the result tensor.
+        // Which gotta do so to avoid some bugs around binary ops with tiled dim=1
+        case GGML_OP_SUM:
+        case GGML_OP_SUM_ROWS:
             return true;
 
         case GGML_OP_SIN:     // Sin and Cos disabled on GS due to bug in TTNN until fixed

@@ -495,6 +495,17 @@ int main()
         ggml_tensor* b = ggml_new_tensor_4d(ctx, GGML_TYPE_BF16, 256, 4, 4, 4);
         return ggml_cpy(ctx, a, b);
     }, "4D tensor copy"));
+
+    tests.push_back(make_test([](ggml_context* ctx) {
+        ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 14, 2, 3);
+        return ggml_sum(ctx, a);
+    }, "sum"));
+
+    tests.push_back(make_test([](ggml_context* ctx) {
+        ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 32, 14, 2, 3);
+        return ggml_sum_rows(ctx, a);
+    }, "sum rows"));
+
     // Failing
     // tests.push_back(make_test([](ggml_context* ctx) {
     //     ggml_tensor* a = ggml_new_tensor_4d(ctx, GGML_TYPE_F32, 256, 4, 4, 4);
