@@ -763,7 +763,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(ttnn::Shape(start), ttnn::Shape(end));
             res = ttnn::tilize_with_zero_padding(tmp.to_device(bufctx->device));
         }
-        return std::make_shared<tt::tt_metal::Tensor>(res);
+        return std::make_shared<tt::tt_metal::Tensor>(std::move(res));
     }
     if(op == GGML_OP_RESHAPE) {
         auto t = realize_ggml_view(src0);
@@ -1283,19 +1283,10 @@ static void ggml_backend_metalium_sqr(ggml_backend_metalium_context * ctx, struc
 
 static bool ggml_backend_metalium_can_concat(const struct ggml_tensor * dst)
 {
-    const struct ggml_tensor * src0 = dst->src[0];
-    const struct ggml_tensor * src1 = dst->src[1];
-
-    GGML_ASSERT(dst->op_params != NULL);
-
-    int32_t dim = 0;
-    memcpy(&dim, dst->op_params, sizeof(dim));
-
-    // TTNN requires tensors to be tile aligned if concat on the last 2 dimensions
-    if(dim == 0 || dim == 1) {
-        return src0->ne[dim] % 32 == 0 && src1->ne[dim] % 32 == 0;
+    if(dst->type == GGML_TYPE_F32 || dst->type == GGML_TYPE_BF16 || dst->type == GGML_TYPE_F16) {
+        return true;
     }
-    return true;
+    return false;
 }
 
 static void ggml_backend_metalium_concat(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
