@@ -17,6 +17,7 @@
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
+#include "ttnn/tensor/storage.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types/arch.h"
@@ -52,7 +53,7 @@
 #include <ttnn/operations/copy.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 #include <tt-metalium/persistent_kernel_cache.hpp>
-#include <ttnn/operations/data_movement/reshape_view/reshape.cpp>
+#include <ttnn/operations/data_movement/reshape_view/reshape.hpp>
 #include <ttnn/operations/reduction/generic/generic_reductions.hpp>
 
 
@@ -490,20 +491,20 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16> || std::is_same_v<SrcType, uint32_t>);
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
-    GGML_ASSERT(row_major_tensor.storage_type() == StorageType::OWNED or row_major_tensor.storage_type() == StorageType::BORROWED);
-    GGML_ASSERT(std::holds_alternative<OwnedStorage>(row_major_tensor.storage()) || std::holds_alternative<BorrowedStorage>(row_major_tensor.storage()));
+    GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::OWNED or row_major_tensor.storage_type() == tt::tt_metal::StorageType::BORROWED);
+    GGML_ASSERT(std::holds_alternative<tt::tt_metal::OwnedStorage>(row_major_tensor.storage()) || std::holds_alternative<tt::tt_metal::BorrowedStorage>(row_major_tensor.storage()));
 
     const SrcType* buf = nullptr;
     size_t buf_size = 0;
-    if(std::holds_alternative<OwnedStorage>(row_major_tensor.storage())) {
-        const OwnedStorage& owned = std::get<OwnedStorage>(row_major_tensor.storage());
-        auto& buffer = std::get<owned_buffer::Buffer<SrcType>>(owned.buffer);
+    if(std::holds_alternative<tt::tt_metal::OwnedStorage>(row_major_tensor.storage())) {
+        const tt::tt_metal::OwnedStorage& owned = std::get<tt::tt_metal::OwnedStorage>(row_major_tensor.storage());
+        auto& buffer = std::get<tt::tt_metal::owned_buffer::Buffer<SrcType>>(owned.buffer);
         buf = buffer.begin();
         buf_size = buffer.size();
     }
-    else if(std::holds_alternative<BorrowedStorage>(row_major_tensor.storage())) {
-        const BorrowedStorage& borrowed = std::get<BorrowedStorage>(row_major_tensor.storage());
-        auto& buffer = std::get<borrowed_buffer::Buffer<SrcType>>(borrowed.buffer);
+    else if(std::holds_alternative<tt::tt_metal::BorrowedStorage>(row_major_tensor.storage())) {
+        const tt::tt_metal::BorrowedStorage& borrowed = std::get<tt::tt_metal::BorrowedStorage>(row_major_tensor.storage());
+        auto& buffer = std::get<tt::tt_metal::borrowed_buffer::Buffer<SrcType>>(borrowed.buffer);
         buf = buffer.begin();
         buf_size = buffer.size();
     } else {
@@ -1707,7 +1708,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         return;
     }
 
-    BorrowedStorage storage;
+    tt::tt_metal::BorrowedStorage storage;
     tt::tt_metal::DataType intermidiate_type = tt::tt_metal::DataType::BFLOAT16;
     if(ggtype == GGML_TYPE_F32) {
         // For now we cast F32 to BF16. Need a scalable way to handle this as WORMHOLD_B0 have native support for F32

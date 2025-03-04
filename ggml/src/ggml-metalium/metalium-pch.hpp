@@ -7,15 +7,22 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
+#include "hostdevcommon/kernel_structs.h"
+#include "tt-metalium/logger.hpp"
+#include "tt-metalium/small_vector.hpp"
+#include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
+#include "ttnn/operations/data_movement/tilize/tilize.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
 #include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/host_buffer/borrowed_buffer.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
+#include "ttnn/tensor/storage.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "types/arch.h"
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -47,6 +54,9 @@
 #include <ttnn/operations/data_movement/concat/concat.hpp>
 #include <ttnn/operations/copy.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
+#include <tt-metalium/persistent_kernel_cache.hpp>
+#include <ttnn/operations/data_movement/reshape_view/reshape.hpp>
+#include <ttnn/operations/reduction/generic/generic_reductions.hpp>
 
 
 #include <memory>
