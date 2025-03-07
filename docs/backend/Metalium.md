@@ -29,6 +29,10 @@ As mentioned earlier, the Metalium backend is experimental software. Thus featur
 * FP32 is emulated by internally using BFP16
    * Native FP32 will be enabled for Wormhole soon
 
+### Dependencies
+
+TBD. I don't have a formal list of what is needed for now. But either install from your system's package manager or build from source.
+
 ### Building and using the backend
 
 There is no "supported" TTNN versions Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
