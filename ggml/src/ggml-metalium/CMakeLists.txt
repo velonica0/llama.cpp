@@ -14,6 +14,7 @@ target_include_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/api
     $ENV{TT_METAL_HOME}/tt_metal/tt_stl
+    $ENV{TT_METAL_HOME}/tt_stl
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
