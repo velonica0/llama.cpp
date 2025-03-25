@@ -916,6 +916,7 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
             // XXX: Why output_tile doesn't have a default value?
             .output_tile = std::nullopt,
             .global_cb = std::nullopt,
+            .sub_device_id = std::nullopt,
         };
         *cm = {
             .tensor = std::make_shared<tt::tt_metal::Tensor>(ttnn::operations::matmul::matmul(b, aT, std::nullopt, cfg)),
@@ -1895,7 +1896,7 @@ static void * ggml_backend_metalium_buffer_get_base(ggml_backend_buffer_t buffer
     return (uint8_t*)0xdeadbeef + ctx->base_offset;
 }
 
-static void
+static enum ggml_status
 ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
                                      ggml_tensor *tensor)
 {
@@ -1921,6 +1922,7 @@ ggml_backend_metalium_buffer_init_tensor(ggml_backend_buffer_t buffer,
     }
     // std::cout << "Creating tensor with address: " << tensor->data << ", shape = " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << ", name " << tensor->name << std::endl;
     GGML_UNUSED(buffer);
+    return GGML_STATUS_SUCCESS;
 }
 
 static void ggml_backend_metalium_buffer_clear(ggml_backend_buffer_t buffer,
