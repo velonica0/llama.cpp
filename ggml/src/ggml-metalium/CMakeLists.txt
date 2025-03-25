@@ -37,8 +37,8 @@ target_include_directories(ggml-metalium PRIVATE
 )
 
 target_link_directories(ggml-metalium PRIVATE
-    $ENV{TT_METAL_HOME}/build/lib
     $ENV{TT_METAL_HOME}/build/ttnn
+    $ENV{TT_METAL_HOME}/build/tt_metal
 )
 
 target_link_libraries(ggml-metalium PRIVATE
@@ -47,7 +47,7 @@ target_link_libraries(ggml-metalium PRIVATE
     yaml-cpp
 
     # TTNN
-    ttnncpp
+    $ENV{TT_METAL_HOME}/build/ttnn/_ttnn.so
 
     ggml-base
 )
