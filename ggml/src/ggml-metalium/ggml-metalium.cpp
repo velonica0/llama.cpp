@@ -878,6 +878,16 @@ static void ggml_backend_metalium_mul_mat(ggml_backend_metalium_context * ctx, s
     GGML_UNUSED(ctx);
 }
 
+static bool ggml_backend_metalium_can_cpy(const struct ggml_tensor * dst)
+{
+    // Destination must not be a view
+    if(dst->op != GGML_OP_CPY) {
+        return true;
+    }
+    ggml_tensor* src1 = dst->src[1];
+    return !(ggml_is_permuted(src1) || is_view(src1));
+}
+
 static void ggml_backend_metalium_cpy(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst) {
     GGML_UNUSED(ctx);
     GGML_METALIUM_OP_SANITY_CHECK(dst);
@@ -1418,6 +1428,7 @@ static void ggml_backend_metalium_arange(ggml_backend_metalium_context * ctx, st
 
     // TODO: Request TT to support arange directly on the device
     auto tensor = ttnn::arange(start, end, step, dtype);
+    tensor = ttnn::reshape(tensor, ttnn::Shape{1, 1, 1, (uint32_t)(end - start)});
     tensor = ttnn::tilize_with_zero_padding(tensor.to_device(device));
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(tensor)),
@@ -2236,9 +2247,6 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             }
         case GGML_OP_LEAKY_RELU:
         case GGML_OP_NONE:
-        case GGML_OP_CONT:
-        case GGML_OP_CPY:
-        case GGML_OP_DUP:
         case GGML_OP_RESHAPE:
         case GGML_OP_TRANSPOSE:
         case GGML_OP_CLAMP:
@@ -2257,6 +2265,11 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_SUM:
         case GGML_OP_SUM_ROWS:
             return true;
+        
+        case GGML_OP_CONT:
+        case GGML_OP_CPY:
+        case GGML_OP_DUP:
+            return ggml_backend_metalium_can_cpy(op);
 
         case GGML_OP_SIN:
         case GGML_OP_COS:
