@@ -170,13 +170,7 @@ static void dump_ggml_tensor_meta(const ggml_tensor* ggtensor)
 static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::IDevice* device)
 {
     ttnn::DeviceComputeKernelConfig cfg;
-    if(device->arch() == tt::ARCH::GRAYSKULL) {
-        cfg = ttnn::GrayskullComputeKernelConfig{
-            .math_fidelity = MathFidelity::HiFi4,
-            .math_approx_mode = false,
-        };
-    }
-    else if (device->arch() == tt::ARCH::WORMHOLE_B0 || device->arch() == tt::ARCH::BLACKHOLE) {
+    if (device->arch() == tt::ARCH::WORMHOLE_B0 || device->arch() == tt::ARCH::BLACKHOLE) {
         cfg = ttnn::WormholeComputeKernelConfig{
             .math_fidelity = MathFidelity::HiFi4,
             .math_approx_mode = false,
@@ -286,49 +280,6 @@ static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
 
 static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH arch) {
     // This table is consulted to map GGML types to TT types dueing tensor creation
-    // TODO: Separate Wormhole out, it supports more types
-    if(arch == tt::ARCH::GRAYSKULL) {
-        static constexpr std::array<tt::tt_metal::DataType, GGML_TYPE_COUNT> table = {
-            /*GGML_TYPE_F32 = */ tt::tt_metal::DataType::BFLOAT16,
-            /*GGML_TYPE_F16 = */ tt::tt_metal::DataType::BFLOAT16,
-            /*GGML_TYPE_Q4_0 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Using BFLOAT8_B for now as BFLOAT4_B is broken on Grayskull
-            /*GGML_TYPE_Q4_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
-            tt::tt_metal::DataType::INVALID,
-            tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_Q5_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q5_1 = */ tt::tt_metal::DataType::BFLOAT8_B,    // Does work but causes issues in unit tests
-            /*GGML_TYPE_Q8_0 = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q8_1 = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q2_K = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_Q3_K = */ tt::tt_metal::DataType::BFLOAT8_B,   // Using BFLOAT8_B for now as BFLOAT4_B is broken on Grayskull
-            /*GGML_TYPE_Q4_K = */ tt::tt_metal::DataType::BFLOAT8_B,   // Using BFLOAT8_B for now as BFLOAT4_B is broken on Grayskull
-            /*GGML_TYPE_Q5_K = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q6_K = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_Q8_K = */ tt::tt_metal::DataType::BFLOAT8_B,
-            /*GGML_TYPE_IQ2_XXS = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ2_XS = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ3_XXS = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ1_S = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ4_NL = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ3_S = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ2_S = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ4_XS = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_I8 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_I16 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_I32 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_I64 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_F64 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_IQ1_M = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_BF16 = */ tt::tt_metal::DataType::BFLOAT16,
-            /*GGML_TYPE_Q4_0_4_4 = */ tt::tt_metal::DataType::INVALID, // Untested from this point on
-            /*GGML_TYPE_Q4_0_4_8 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_Q4_0_8_8 = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_TQ1_0   = */ tt::tt_metal::DataType::INVALID,
-            /*GGML_TYPE_TQ2_0   = */ tt::tt_metal::DataType::INVALID,
-        };
-        tt::tt_metal::DataType type = table[ggtype];
-        return type;
-    }
     if(arch == tt::ARCH::WORMHOLE_B0) {
         static constexpr std::array<tt::tt_metal::DataType, GGML_TYPE_COUNT> table = {
             /*GGML_TYPE_F32 = */ tt::tt_metal::DataType::BFLOAT16,
@@ -527,7 +478,6 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]]
         src_dst_same = false;
     }
     // Just putting the integer types here to remind me TT tensors can have integer types
-    // But not supported on Grayskull.
     else if ((std::is_same_v<SrcType, float> && dst_ggtype == GGML_TYPE_F32) ||
              (std::is_same_v<SrcType, bfloat16> && dst_ggtype == GGML_TYPE_BF16) ||
              (std::is_same_v<SrcType, int32_t> && dst_ggtype == GGML_TYPE_I32) ||
@@ -1728,18 +1678,10 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         intermidiate_type = tt::tt_metal::DataType::UINT32;
     }
     else if (ggml_is_quantized(ggtype)) {
-        // TT hardware has it's own quantized data types. We need to convert the data to the correct format. GGML nativly supports
-        // decoding quantized data to FP32. So on hardware that supports FP32, it is faster to convert the data to FP32, then let the
-        // hardware convert it to the correct quantized data type. Else (on Grayskull) we need an additional step to convert what GGML
-        // gives us (FP32) to the bfloat16, which is universally supported by all TT hardware. Then to quantized data type. This extra
-        // conversion step is quite expensive.
-        if(processor_class != tt::ARCH::GRAYSKULL) {
-            storage = ggml_quantized2owned_storage<float>(data, tensor);
-            intermidiate_type = tt::tt_metal::DataType::FLOAT32;
-        }
-        else {
-            storage = ggml_quantized2owned_storage<bfloat16>(data, tensor);
-        }
+        // Going to FP16 requires a cast to BFLOAT16 which is slower. Instead go to FP32. Even though it's larger
+        // it's faster due to one less step.
+        storage = ggml_quantized2owned_storage<float>(data, tensor);
+        intermidiate_type = tt::tt_metal::DataType::FLOAT32;
     }
     else {
         tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type while uploading to device: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
@@ -2316,10 +2258,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_SUM_ROWS:
             return true;
 
-        case GGML_OP_SIN:     // Sin and Cos disabled on GS due to bug in TTNN until fixed
-        case GGML_OP_COS:     // ref: https://github.com/tenstorrent/tt-metal/issues/12753
-            return ctx->device->arch() != tt::ARCH::GRAYSKULL;
-
+        case GGML_OP_SIN:
+        case GGML_OP_COS:
         case GGML_OP_ADD:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
@@ -2511,12 +2451,6 @@ static std::string identify_tensotrrent_device(const ttnn::IDevice* device)
 {
     auto grid_size = device->compute_with_storage_grid_size();
     // TODO: Support mesh configurations
-    if(device->arch() == tt::ARCH::GRAYSKULL) {
-        if(grid_size.x == 11 && grid_size.y == 8) {
-            return "Tenstorrent Grayskull e75";
-        }
-        return "Tenstorrent Grayskull e150";
-    }
     if(device->arch() == tt::ARCH::WORMHOLE_B0) {
         if(grid_size.x == 8 && grid_size.y == 7) {
             return "Tenstorrent Wormhole n300";
@@ -2552,8 +2486,8 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
             ggml_backend_metalium_device_context * dev_ctx = new ggml_backend_metalium_device_context;
             ttnn::IDevice* device = &ttnn::device::open_device(device_id);
             ttnn::enable_program_cache(*device);
-            // Limit device support to the ones I own
-            GGML_ASSERT(device->arch() == tt::ARCH::GRAYSKULL || device->arch() == tt::ARCH::WORMHOLE_B0);
+            // Limit device support to the ones I own (GS is removed as TTNN dropped support)
+            GGML_ASSERT(device->arch() == tt::ARCH::WORMHOLE_B0);
 
             dev_ctx->device = device;
             dev_ctx->device_id = device_id;

@@ -17,7 +17,7 @@ Tenstorrent produces a range of ASICs with very scalable design that enables eff
 
 ### llama.cpp + Metalium
 
-The llama.cpp Metalium backend is designed to support inference on Tenstorrent's Wormhole or later processors. It is experimental software in it's early days. The earlier Grayskull generation processors are technically supported. However, some operators are not available due to hardware limitations. Leading to lower then expected performance.
+The llama.cpp Metalium backend is designed to support inference on Tenstorrent's Wormhole or later processors. It is experimental software in it's early days. The earlier Grayskull generation processors have their support removed from current versions of TTNN, thus also unsupported by this backend.
 
 ### Note on current limitations
 
@@ -80,7 +80,6 @@ The following hardware ate tested
 
 | Tenstorrent Device            | Status  |
 |:-----------------------------:|:-------:|
-| Grayskull e75                 | Tested  |
 | Wormhole N300                 | Tested  |
 
 ## DataType Supports
