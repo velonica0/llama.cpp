@@ -36,11 +36,9 @@ target_include_directories(ggml-metalium PRIVATE
     ..
 )
 
-# TODO: TTNN can optionally not depend on Python. But we can't detect that yet.
-find_package(Python REQUIRED Development)
-
 target_link_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/build/lib
+    $ENV{TT_METAL_HOME}/build/ttnn
 )
 
 target_link_libraries(ggml-metalium PRIVATE
@@ -49,8 +47,7 @@ target_link_libraries(ggml-metalium PRIVATE
     yaml-cpp
 
     # TTNN
-    Python::Python
-    $ENV{TT_METAL_HOME}/build/lib/_ttnn.so
+    ttnncpp
 
     ggml-base
 )
