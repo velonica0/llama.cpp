@@ -63,10 +63,6 @@
 #include <variant>
 #include <vector>
 
-#ifdef __x86_64__
-#include <immintrin.h>
-#endif
-
 struct ggml_backend_metalium_context {
     ttnn::IDevice* device = nullptr;
     int device_id = 0;
@@ -232,6 +228,7 @@ static size_t g_metalium_base_offset = 0;
 // and wormhole supports bfloat16 natively.
 static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
     size_t i = 0;
+#if 0
 #if defined(__AVX512BF16__)
       for (; i + 32 <= n; i += 32) {
         _mm512_storeu_si512(
@@ -269,6 +266,7 @@ static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
         // Store the result
         _mm_storel_epi64((__m128i*)(y + i), ix);
     }
+#endif
 #endif
 
     // Handle remaining elements

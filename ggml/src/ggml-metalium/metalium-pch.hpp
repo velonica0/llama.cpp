@@ -65,7 +65,4 @@
 #include <variant>
 #include <vector>
 
-#ifdef __x86_64__
-#include <immintrin.h>
-#endif
 #endif
