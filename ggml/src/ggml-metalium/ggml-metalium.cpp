@@ -222,60 +222,6 @@ static size_t g_metalium_base_offset = 0;
 // Actual backend code
 ///////////////////////////////////////////////////////////////////////////////////////////////////////
 
-// convert a float to a bfloat16. This version is not as accurate as the one in the GGML
-// but is broad as it supports AVX2 and SSE (instead of just AVX512)
-// TODO: Do we really need this? GGML already decompresses quantized tensors into float
-// and wormhole supports bfloat16 natively.
-static void internal_fp32_to_bf16(const float* x, bfloat16* y, size_t n) {
-    size_t i = 0;
-#if 0
-#if defined(__AVX512BF16__)
-      for (; i + 32 <= n; i += 32) {
-        _mm512_storeu_si512(
-            (__m512i *)(y + i),
-            __m512i(_mm512_cvtne2ps_pbh(_mm512_loadu_ps(x + i + 16),
-                                _mm512_loadu_ps(x + i))));
-      }
-
-#elif defined(__AVX2__)
-    // Process 8 floats at a time using AVX2
-    for (; i + 8 <= n; i += 8) {
-        __m256 fx = _mm256_loadu_ps(x + i);
-        __m256i ix = _mm256_castps_si256(fx);
-
-        // Shift right by 16 bits to get the upper 16 bits of the float
-        ix = _mm256_srli_epi32(ix, 16);
-
-        // Pack the 32-bit integers into 16-bit integers
-        __m128i iy = _mm256_cvtepi32_epi16(ix);
-
-        // Store the result
-        _mm_storeu_si128((__m128i*)(y + i), iy);
-    }
-#elif defined(__SSE__)
-    for (i = 0; i + 4 <= n; i += 4) {
-        __m128 fx = _mm_loadu_ps(x + i);
-        __m128i ix = _mm_castps_si128(fx);
-
-        // Shift right by 16 bits to get the upper 16 bits of the float
-        ix = _mm_srli_epi32(ix, 16);
-
-        // Pack the 32-bit integers into 16-bit integers
-        ix = _mm_packus_epi32(ix, ix);
-
-        // Store the result
-        _mm_storel_epi64((__m128i*)(y + i), ix);
-    }
-#endif
-#endif
-
-    // Handle remaining elements
-    for (; i < n; i++) {
-        uint32_t ix = *(const uint32_t*)(x + i);
-        y[i] = bfloat16(ix >> 16);
-    }
-}
-
 static tt::tt_metal::DataType ggml2tt_type_internal(ggml_type ggtype, tt::ARCH arch) {
     // This table is consulted to map GGML types to TT types dueing tensor creation
     if(arch == tt::ARCH::WORMHOLE_B0) {
@@ -405,7 +351,10 @@ tt::tt_metal::BorrowedStorage data2borroweded_storage(const SrcType* src, size_t
     }
     // special case for BFP16 (much faster then TTNN's implementation)
     else if constexpr(std::is_same_v<Src, float> && std::is_same_v<Dst, bfloat16>) {
-        internal_fp32_to_bf16(src, vec.get(), size);
+        // internal_fp32_to_bf16(src, vec.get(), size);
+        const auto* trait = ggml_get_type_traits_cpu(GGML_TYPE_BF16);
+        assert(trait != nullptr);
+        trait->from_float(src, vec.get(), size);
     }
     else {
         for(size_t i = 0; i < size; i++) {
