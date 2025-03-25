@@ -13,14 +13,12 @@ target_include_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}
     $ENV{TT_METAL_HOME}/tt_metal
     $ENV{TT_METAL_HOME}/tt_metal/api
-    $ENV{TT_METAL_HOME}/tt_metal/tt_stl
     $ENV{TT_METAL_HOME}/tt_stl
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api/umd
     $ENV{TT_METAL_HOME}/tt_metal/third_party/umd/device/api/umd/device
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/fmt
     $ENV{TT_METAL_HOME}/tt_metal/hw/inc/
     $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public/tracy
     $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public/
@@ -30,7 +28,6 @@ target_include_directories(ggml-metalium PRIVATE
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn
     $ENV{TT_METAL_HOME}/ttnn/cpp
-    $ENV{TT_METAL_HOME}/tt_metal/third_party/magic_enum
 
     # Parent GGML stuff
     ..
