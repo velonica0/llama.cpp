@@ -704,16 +704,11 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             res = reshape_tt_tensor_into_ggml(tmp, tensor);
         }
         // The fast path, this is what TTNN is designed for (direct slicing)
-        else if(start[2] % tt::constants::TILE_WIDTH == 0 && start[3] % tt::constants::TILE_HEIGHT == 0) {
+        else {
             std::array<uint32_t, GGML_MAX_DIMS> step = {1, 1, 1, 1};
             res = ttnn::slice(*parent, start, end, step);
         }
-        // Unpad on the CPU and then pad back on the device
-        else {
-            // THIS is EXTREMELY SLOW. But it works
-            tt::tt_metal::Tensor tmp = ttnn::untilize(*parent).cpu().unpad(ttnn::Shape(start), ttnn::Shape(end));
-            res = ttnn::tilize_with_zero_padding(tmp.to_device(bufctx->device));
-        }
+
         return std::make_shared<tt::tt_metal::Tensor>(std::move(res));
     }
     if(op == GGML_OP_RESHAPE) {
