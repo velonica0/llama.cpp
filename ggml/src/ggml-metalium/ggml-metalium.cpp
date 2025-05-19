@@ -364,13 +364,15 @@ static tt::tt_metal::HostStorage data2borroweded_storage(const SrcType* src, siz
     int* refcount = new int(0);
     tt::tt_metal::MemoryPin pin(
         [refcount]() mutable {
-            refcount++;
+            (*refcount)++;
         },
         [refcount, vec]() mutable {
-            refcount--;
+            assert(refcount != nullptr);
+            (*refcount)--;
             if(*refcount == 0) {
                 delete refcount;
                 vec.reset();
+                refcount = nullptr;
             }
         }
     );
@@ -393,10 +395,11 @@ static tt::tt_metal::HostStorage ggml_quantized2owned_storage(const void* src, c
         float* vec_ptr = vec.get();
         tt::tt_metal::MemoryPin pin(
             [refcount]() mutable {
-                refcount++;
+                (*refcount)++;
             },
             [refcount, vec=std::move(vec)]() mutable {
-                refcount--;
+                assert(refcount != nullptr);
+                (*refcount)--;
                 if(*refcount == 0) {
                     delete refcount;
                     vec.reset();
@@ -409,7 +412,7 @@ static tt::tt_metal::HostStorage ggml_quantized2owned_storage(const void* src, c
 }
 
 template <typename SrcType>
-void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, [[maybe_unused]] tt::tt_metal::CommandQueue& queue, ggml_type dst_ggtype) {
+void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_ggtype) {
     // Converts TT tensors to GGML types
     ttnn::Shape shape = tensor.logical_shape();
     ttnn::Shape padded_shape = tensor.padded_shape();
@@ -1734,7 +1737,6 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     ggml_backend_metalium_buffer_context * ctx = (ggml_backend_metalium_buffer_context *)buffer->context;
 
     ggml_type dst_ggtype = tensor->type;
-    tt::tt_metal::CommandQueue& queue = ctx->device->command_queue(0);
 
     // auto *meta = (TensorWithMetadata*)tensor->extra;
     // auto shape = meta->tensor->logical_shape();
@@ -1790,13 +1792,13 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     GGML_ASSERT(dst_ggtype != GGML_TYPE_F64 && dst_ggtype != GGML_TYPE_I16 && dst_ggtype != GGML_TYPE_I8);
     switch(t->dtype()) {
         case tt::tt_metal::DataType::BFLOAT16:
-            tensor2ggml<bfloat16>(*t, (float*)data, queue, dst_ggtype);
+            tensor2ggml<bfloat16>(*t, (float*)data, dst_ggtype);
             break;
         case tt::tt_metal::DataType::FLOAT32:
-            tensor2ggml<float>(*t, (float*)data, queue, dst_ggtype);
+            tensor2ggml<float>(*t, (float*)data, dst_ggtype);
             break;
         case tt::tt_metal::DataType::UINT32:
-            tensor2ggml<uint32_t>(*t, (int*)data, queue, dst_ggtype);
+            tensor2ggml<uint32_t>(*t, (int*)data, dst_ggtype);
             break;
         default:
             GGML_ASSERT(false && "Unsupported data type in TT tensor when converting to GGML tensor");
