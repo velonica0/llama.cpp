@@ -27,6 +27,7 @@ target_include_directories(ggml-metalium PRIVATE
 
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn
+    $ENV{TT_METAL_HOME}/ttnn/api
     $ENV{TT_METAL_HOME}/ttnn/cpp
 
     # Parent GGML stuff
