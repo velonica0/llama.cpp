@@ -419,23 +419,31 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_gg
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16> || std::is_same_v<SrcType, uint32_t>);
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
-    GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST);
-    GGML_ASSERT(std::holds_alternative<tt::tt_metal::HostStorage>(row_major_tensor.storage()));
+    GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST || row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST);
+    GGML_ASSERT(std::holds_alternative<tt::tt_metal::HostStorage>(row_major_tensor.storage()) || std::holds_alternative<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage()));
 
     const SrcType* buf = nullptr;
     size_t buf_size = 0;
-    const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
-    const auto& buffer = storage.buffer;
-    auto view = buffer.view_as<SrcType>();
-    buf = view.begin();
-    buf_size = view.size();
+    if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST) {
+        const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
+        const auto& buffer = storage.buffer;
+        auto view = buffer.view_as<SrcType>();
+        buf = view.begin();
+        buf_size = view.size();
+    }
+    else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
+        const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
+        GGML_ASSERT(broad_storage.num_buffers() == 1);
+        const tt::tt_metal::HostStorage& storage = broad_storage.get_buffer(0);
+        const auto& buffer = storage.buffer;
+        auto view = buffer.view_as<SrcType>();
+        buf = view.begin();
+        buf_size = view.size();
+    }
+    else {
+        GGML_ASSERT(false && "Unsupported storage type");
+    }
     GGML_ASSERT(buf != nullptr);
-    // TODO: Measure the performance of the following code. This is much simpeer and does untiling on the device
-    // But does not work for large tensors
-    // row_major_tensor = ttnn::untilize(tensor);
-    // GGML_ASSERT(row_major_tensor.layout() == tt::tt_metal::Layout::ROW_MAJOR);
-    // tt::tt_metal::memcpy(queue, buf.data(), row_major_tensor);
-    // tt::tt_metal::Finish(queue);
     void* intermid = nullptr;
     std::vector<std::byte> intermid_buf;
     bool need_quantized_conversion = false;
@@ -737,7 +745,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
         GGML_ASSERT((_node)->src[_idx]->extra != NULL); \
         auto _meta = (TensorWithMetadata*)((_node)->src[_idx]->extra); \
         if(_meta->tensor != NULL) { \
-        GGML_ASSERT(_meta->tensor->storage_type() == tt::tt_metal::StorageType::HOST); \
+        GGML_ASSERT(_meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE); \
         GGML_ASSERT(_meta->tensor->layout() == tt::tt_metal::Layout::TILE); }\
     } while(0)
 #define GGML_METALIUM_OP_SRC0_SANITY_CHECK(_node) GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, 0)
@@ -1734,7 +1742,7 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
     GGML_ASSERT(tensor->extra != NULL);
     GGML_UNUSED(offset);
 
-    ggml_backend_metalium_buffer_context * ctx = (ggml_backend_metalium_buffer_context *)buffer->context;
+    // ggml_backend_metalium_buffer_context * ctx = (ggml_backend_metalium_buffer_context *)buffer->context;
 
     ggml_type dst_ggtype = tensor->type;
 
@@ -2274,7 +2282,7 @@ static bool ggml_backend_metalium_device_supports_buft(ggml_backend_dev_t dev, g
 static void ggml_backend_metalium_synchronize(ggml_backend_t backend)
 {
     ggml_backend_metalium_context * ctx = (ggml_backend_metalium_context *)backend->context;
-    tt::tt_metal::Finish(ctx->device->command_queue());
+    tt::tt_metal::Finish(ctx->device->get_mesh_device()->get_device(0)->command_queue());
 }
 
 static struct ggml_backend_i metalium_backend_i = {
