@@ -51,7 +51,7 @@
 #include <ttnn/operations/data_movement/permute/permute.hpp>
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
-#include <ttnn/operations/copy.hpp>
+#include <ttnn/operations/copy/typecast/typecast.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 #include <tt-metalium/persistent_kernel_cache.hpp>
 #include <ttnn/operations/data_movement/reshape_view/reshape.hpp>

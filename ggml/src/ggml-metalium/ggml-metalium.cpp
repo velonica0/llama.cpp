@@ -50,7 +50,7 @@
 #include <ttnn/operations/data_movement/permute/permute.hpp>
 #include <ttnn/operations/data_movement/repeat/repeat.hpp>
 #include <ttnn/operations/data_movement/concat/concat.hpp>
-#include <ttnn/operations/copy.hpp>
+#include <ttnn/operations/copy/typecast/typecast.hpp>
 #include <ttnn/operations/normalization/softmax/softmax.hpp>
 #include <tt-metalium/persistent_kernel_cache.hpp>
 #include <ttnn/operations/data_movement/reshape_view/reshape.hpp>
@@ -188,6 +188,7 @@ struct ggml_backend_metalium_debug_flags {
     bool print_rejected_ops = false;        // Print ops that the backend rejects
     bool print_view = false;                // Print details when a VIEW op is being realized
     bool cache_mm_transpose = false;        // Cache the transpose kernel for matmul
+    bool disable_program_cache = false;     // Disables the program cache
 };
 
 static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
@@ -207,6 +208,7 @@ static const ggml_backend_metalium_debug_flags g_debug_flags = []() {
         .print_rejected_ops = func("GGML_METALIUM_PRINT_REJECTED_OPS"),
         .print_view = func("GGML_METALIUM_PRINT_VIEW"),
         .cache_mm_transpose = func("GGML_METALIUM_CACHE_MM_TRANSPOSE"), // GGML uses pre-transposed weights. Remove this flag when TT implements it
+        .disable_program_cache = func("GGML_METALIUM_DISABLE_PROGRAM_CACHE")
     };
 }();
 
@@ -2261,8 +2263,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
             return tensor_supported(src1) && ggml_backend_metalium_can_get_rows(op);
         case GGML_OP_CONCAT:
             return tensor_supported(src1) && ggml_backend_metalium_can_concat(op);
-        case GGML_OP_REPEAT:
-            return ggml_backend_metalium_can_repeat(op);
+        // case GGML_OP_REPEAT:
+        //     return ggml_backend_metalium_can_repeat(op);
         case GGML_OP_OUT_PROD:
             return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         default:
@@ -2281,6 +2283,7 @@ static bool ggml_backend_metalium_device_supports_buft(ggml_backend_dev_t dev, g
 
 static void ggml_backend_metalium_synchronize(ggml_backend_t backend)
 {
+    return;
     ggml_backend_metalium_context * ctx = (ggml_backend_metalium_context *)backend->context;
     tt::tt_metal::Finish(ctx->device->get_mesh_device()->get_device(0)->command_queue());
 }
@@ -2455,7 +2458,8 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
             tt::log_fatal(tt::LogType::LogAlways, "The TT_METAL_HOME environment variables must be set to use the Metalium backend");
             abort();
         }
-        tt::tt_metal::detail::EnablePersistentKernelCache();
+        if(!g_debug_flags.disable_program_cache)
+            tt::tt_metal::detail::EnablePersistentKernelCache();
         // TODO: Support multiple devices (TT supports mesh configuration so it's going to be tricky)
         // but for now we just work on 1 device at a time
         static std::unique_ptr<ggml_backend_metalium_reg_context> ctx = std::make_unique<ggml_backend_metalium_reg_context>();
@@ -2468,7 +2472,8 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
         for(size_t device_id = 0; device_id < num_devices; device_id++) {
             ggml_backend_metalium_device_context * dev_ctx = new ggml_backend_metalium_device_context;
             auto device = ttnn::open_mesh_device(device_id);
-            ttnn::enable_program_cache(*device);
+            if(!g_debug_flags.disable_program_cache)
+                ttnn::enable_program_cache(*device);
             // Limit device support to the ones I own (GS is removed as TTNN dropped support)
             GGML_ASSERT(device->arch() == tt::ARCH::WORMHOLE_B0);
 

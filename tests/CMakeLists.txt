@@ -177,5 +177,5 @@ add_executable(${TEST_TARGET} test-c.c)
 target_link_libraries(${TEST_TARGET} PRIVATE llama)
 
 if (GGML_METALIUM)
-    llama_target_and_test(test-metalium.cpp)
+    llama_build_and_test(test-metalium.cpp)
 endif()
