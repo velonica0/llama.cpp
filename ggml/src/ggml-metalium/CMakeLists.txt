@@ -24,6 +24,7 @@ target_include_directories(ggml-metalium PRIVATE
     $ENV{TT_METAL_HOME}/tt_metal/third_party/tracy/public/
     $ENV{TT_METAL_HOME}/tt_metal/hostdevcommon/api/
     $ENV{TT_METAL_HOME}/tt_metal/include
+    $ENV{TT_METAL_HOME}/build/include
 
     # TTNN
     $ENV{TT_METAL_HOME}/ttnn
@@ -45,7 +46,7 @@ target_link_libraries(ggml-metalium PRIVATE
     yaml-cpp
 
     # TTNN
-    ttnncpp
+    $ENV{TT_METAL_HOME}/build/ttnn/_ttnn.so
 
     ggml-base
 )
@@ -54,6 +55,7 @@ target_link_libraries(ggml-metalium PRIVATE
 target_compile_definitions(
     ggml-metalium PRIVATE
     FMT_HEADER_ONLY
+    SPDLOG_FMT_EXTERNAL
 )
 
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

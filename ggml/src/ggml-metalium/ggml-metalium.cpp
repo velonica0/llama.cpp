@@ -7,8 +7,6 @@
 
 #include "hostdevcommon/kernel_structs.h"
 #include "tt-metalium/host_buffer.hpp"
-#include "tt-metalium/logger.hpp"
-#include "tt-metalium/small_vector.hpp"
 #include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/data_movement/tilize/tilize.hpp"
@@ -175,7 +173,7 @@ static ttnn::DeviceComputeKernelConfig make_compute_kernel_config(ttnn::IDevice*
         };
     }
     else {
-        tt::log_fatal("Unsupported device arch {} in make_compute_kernel_config", device->arch());
+        fmt::println(stderr,"Unsupported device arch {} in make_compute_kernel_config", device->arch());
         abort();
     }
     return cfg;
@@ -289,7 +287,7 @@ static tt::tt_metal::DataType ggml2tt_type(ggml_type ggtype, tt::ARCH arch)
 {
     tt::tt_metal::DataType type = ggml2tt_type_internal(ggtype, arch);
     if(type == tt::tt_metal::DataType::INVALID) {
-        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type: {}", ggml_type_name(ggtype));
+        fmt::println(stderr, "Unsupported data type: {}", ggml_type_name(ggtype));
         GGML_ASSERT(false && "Unsupported data type");
     }
     return type;
@@ -434,13 +432,14 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_gg
         buf_size = view.size();
     }
     else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
-        const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
-        GGML_ASSERT(broad_storage.num_buffers() == 1);
-        const tt::tt_metal::HostStorage& storage = broad_storage.get_buffer(0);
-        const auto& buffer = storage.buffer;
-        auto view = buffer.view_as<SrcType>();
-        buf = view.begin();
-        buf_size = view.size();
+        abort();
+        // const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
+        // GGML_ASSERT(broad_storage.num_buffers() == 1);
+        // const tt::tt_metal::HostStorage& storage = broad_storage.get_buffer(0);
+        // const auto& buffer = storage.buffer;
+        // auto view = buffer.view_as<SrcType>();
+        // buf = view.begin();
+        // buf_size = view.size();
     }
     else {
         GGML_ASSERT(false && "Unsupported storage type");
@@ -708,7 +707,7 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
             return t;
         }
 
-        ttnn::SmallVector<int64_t> permute_tt(GGML_MAX_DIMS);
+        ttsl::SmallVector<int64_t> permute_tt(GGML_MAX_DIMS);
         for(int i=0;i<GGML_MAX_DIMS;i++) {
             permute_tt[i] = GGML_MAX_DIMS - permute[GGML_MAX_DIMS - i - 1] - 1;
         }
@@ -1395,7 +1394,7 @@ static void ggml_backend_metalium_arange(ggml_backend_metalium_context * ctx, st
     auto [start, end, step] = params;
     auto dtype = ggml2tt_type(dst->type, device->arch());
     if(dtype == tt::tt_metal::DataType::INVALID) {
-        tt::log_fatal(tt::LogType::LogAlways, "Unsupported GGML type {}", ggml_type_name(dst->type));
+        fmt::println(stderr, "Unsupported GGML type {}", ggml_type_name(dst->type));
         GGML_ASSERT(false && "Unsupported GGML type");
     }
 
@@ -1470,7 +1469,7 @@ static void ggml_backend_metalium_repeat(ggml_backend_metalium_context * ctx, st
     ggml_tensor* src0 = dst->src[0];
 
     auto tensor = realize_ggml_view(dst->src[0]);
-    ttnn::SmallVector<uint32_t> repeats;
+    ttsl::SmallVector<uint32_t> repeats;
     repeats.resize(GGML_MAX_DIMS);
     int ndiff = 0;
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
@@ -1668,17 +1667,17 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         intermidiate_type = tt::tt_metal::DataType::FLOAT32;
     }
     else {
-        tt::log_fatal(tt::LogType::LogAlways, "Unsupported data type while uploading to device: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
+        fmt::println(stderr, "Unsupported data type while uploading to device: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
         GGML_ASSERT(false && "Unsupported data type while uploading to device");
     }
 
-    ttnn::SmallVector<uint32_t> shape(GGML_MAX_DIMS, 1);
+    ttsl::SmallVector<uint32_t> shape(GGML_MAX_DIMS, 1);
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
         // GGML stores the shape in reverse order
         shape[i] = tensor->ne[GGML_MAX_DIMS - i - 1];
     }
 
-    std::optional<ttnn::SmallVector<int64_t>> permute;
+    std::optional<ttsl::SmallVector<int64_t>> permute;
     // In case GGML sent us a non-contiguous tensor, we need to permute it to make it contiguous
     // We don't care about reshape as that doesn't make a difference in row-major layout
     // TODO: This code does not handle yucky cases like stries of [4, 8, 0, 0] but I assume GGML
@@ -1705,7 +1704,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         }
 
         // Now we can figure out the permutation that we need to apply
-        ttnn::SmallVector<int64_t> perm(GGML_MAX_DIMS, -1);
+        ttsl::SmallVector<int64_t> perm(GGML_MAX_DIMS, -1);
         for(int i = 0; i < GGML_MAX_DIMS; i++) {
             perm[strides[i].second] = i;
         }
@@ -2116,7 +2115,7 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
         GGML_ASSERT(meta->tensor != NULL);
         GGML_ASSERT(meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE);
         if(!ggml_tt_tensors_shape_equal(node, *meta->tensor)) {
-            tt::log_fatal(tt::LogType::LogAlways, "Mismatched tensor shapes for node '{}' ({}): GGML wants [{}, {}, {}, {}], TTNN generates {}\n"
+            fmt::println(stderr, "Mismatched tensor shapes for node '{}' ({}): GGML wants [{}, {}, {}, {}], TTNN generates {}\n"
                 , node->name, ggml_op_name(node->op), node->ne[0], node->ne[1], node->ne[2], node->ne[3], meta->tensor->logical_shape());
             abort();
         }
@@ -2455,7 +2454,7 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
     static std::once_flag once;
     std::call_once(once, [&]() {
         if(getenv("TT_METAL_HOME") == NULL) {
-            tt::log_fatal(tt::LogType::LogAlways, "The TT_METAL_HOME environment variables must be set to use the Metalium backend");
+            fmt::println(stderr, "The TT_METAL_HOME environment variables must be set to use the Metalium backend");
             abort();
         }
         if(!g_debug_flags.disable_program_cache)
@@ -2480,7 +2479,7 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
             dev_ctx->device = device;
             dev_ctx->device_id = device_id;
             dev_ctx->name = "METALIUM" + std::to_string(device_id);
-            auto d = device->get_device(0);
+            auto* d = device->get_device(0);
             dev_ctx->description = identify_tensotrrent_device(d) + (d->is_mmio_capable() ? " [Local]" : " [Remote]");
 
             ggml_backend_dev_t dev = new ggml_backend_device {

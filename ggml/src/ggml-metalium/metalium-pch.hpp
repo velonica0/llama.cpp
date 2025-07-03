@@ -8,8 +8,6 @@
 #include "ggml-metalium.h"
 
 #include "hostdevcommon/kernel_structs.h"
-#include "tt-metalium/logger.hpp"
-#include "tt-metalium/small_vector.hpp"
 #include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/data_movement/tilize/tilize.hpp"
@@ -63,5 +61,6 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <cstdint>
 
 #endif
