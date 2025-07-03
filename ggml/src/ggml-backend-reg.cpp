@@ -61,10 +61,6 @@
 #include "ggml-cann.h"
 #endif
 
-#ifdef GGML_USE_KOMPUTE
-#include "ggml-kompute.h"
-#endif
-
 #ifdef GGML_USE_METALIUM
 #include "ggml-metalium.h"
 #endif
@@ -73,6 +69,9 @@
 #if defined(__clang__)
 #    pragma clang diagnostic push
 #    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic push
+#    pragma GCC diagnostic ignored "-Wdeprecated-declarations"
 #endif
 
 namespace fs = std::filesystem;
@@ -95,6 +94,8 @@ static std::string path_str(const fs::path & path) {
 
 #if defined(__clang__)
 #    pragma clang diagnostic pop
+#elif defined(__GNUC__)
+#    pragma GCC diagnostic pop
 #endif
 
 #ifdef _WIN32
@@ -187,9 +188,6 @@ struct ggml_backend_registry {
 #endif
 #ifdef GGML_USE_RPC
         register_backend(ggml_backend_rpc_reg());
-#endif
-#ifdef GGML_USE_KOMPUTE
-        register_backend(ggml_backend_kompute_reg());
 #endif
 #ifdef GGML_USE_METALIUM
         register_backend(ggml_backend_metalium_reg());
@@ -577,7 +575,6 @@ void ggml_backend_load_all_from_path(const char * dir_path) {
     ggml_backend_load_best("cann", silent, dir_path);
     ggml_backend_load_best("cuda", silent, dir_path);
     ggml_backend_load_best("hip", silent, dir_path);
-    ggml_backend_load_best("kompute", silent, dir_path);
     ggml_backend_load_best("metal", silent, dir_path);
     ggml_backend_load_best("rpc", silent, dir_path);
     ggml_backend_load_best("sycl", silent, dir_path);

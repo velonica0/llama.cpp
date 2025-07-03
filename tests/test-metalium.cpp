@@ -283,7 +283,7 @@ struct test_case
             GGML_UNUSED(index);
         };
 
-        const bool cmp_ok = ggml_backend_compare_graph_backend(backend1, backend2, gf, callback, &ud);
+        const bool cmp_ok = ggml_backend_compare_graph_backend(backend1, backend2, gf, callback, &ud, NULL);
 
         if (!cmp_ok) {
             printf("compare failed ");
