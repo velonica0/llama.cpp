@@ -5,11 +5,8 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
-#include "hostdevcommon/kernel_structs.h"
 #include "tt-metalium/host_buffer.hpp"
-#include "tt-metalium/tt_backend_api_types.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
-#include "ttnn/operations/data_movement/tilize/tilize.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -412,7 +409,7 @@ static tt::tt_metal::HostStorage ggml_quantized2owned_storage(const void* src, c
 }
 
 template <typename SrcType>
-void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_ggtype) {
+static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_ggtype) {
     // Converts TT tensors to GGML types
     ttnn::Shape shape = tensor.logical_shape();
     ttnn::Shape padded_shape = tensor.padded_shape();
@@ -432,14 +429,13 @@ void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type dst_gg
         buf_size = view.size();
     }
     else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
-        abort();
-        // const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
-        // GGML_ASSERT(broad_storage.num_buffers() == 1);
-        // const tt::tt_metal::HostStorage& storage = broad_storage.get_buffer(0);
-        // const auto& buffer = storage.buffer;
-        // auto view = buffer.view_as<SrcType>();
-        // buf = view.begin();
-        // buf_size = view.size();
+        const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
+        GGML_ASSERT(broad_storage.distributed_buffer().shape().mesh_size() == 1 && "Only 1 is in multi device host is supported for now");
+        const tt::tt_metal::HostStorage& storage = broad_storage.distributed_buffer().get_shard({0, 0}).value();
+        const auto& buffer = storage.buffer;
+        auto view = buffer.view_as<SrcType>();
+        buf = view.begin();
+        buf_size = view.size();
     }
     else {
         GGML_ASSERT(false && "Unsupported storage type");
@@ -639,30 +635,31 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
 
         if(g_debug_flags.print_view) {
             // Debug prints to help debug complicated view operations
-            std::cout << "\nrealize_ggml_view() OP: " << ggml_op_desc(tensor) << std::endl;
-            std::cout << "  dst name: " << tensor->name << std::endl;
-            std::cout << "  dst shape: " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << std::endl;
-            std::cout << "  dst stride: " << tensor->nb[0] << " " << tensor->nb[1] << " " << tensor->nb[2] << " " << tensor->nb[3] << std::endl;
-            std::cout << "  dst extra: " << tensor->extra << std::endl;
+            std::cout << "\nrealize_ggml_view() OP: " << ggml_op_desc(tensor) << "\n";
+            std::cout << "  dst name: " << tensor->name << "\n";
+            std::cout << "  dst shape: " << tensor->ne[0] << " " << tensor->ne[1] << " " << tensor->ne[2] << " " << tensor->ne[3] << "\n";
+            std::cout << "  dst stride: " << tensor->nb[0] << " " << tensor->nb[1] << " " << tensor->nb[2] << " " << tensor->nb[3] << "\n";
+            std::cout << "  dst extra: " << tensor->extra << "\n";
             if(tensor->extra != nullptr) {
                 TensorWithMetadata* meta = (TensorWithMetadata*)tensor->extra;
-                std::cout << "  dst tensor: " << meta->tensor << std::endl;
+                std::cout << "  dst tensor: " << meta->tensor << "\n";
                 if(meta->tensor != nullptr) {
-                    std::cout << "  dst tensor shape: " << meta->tensor->logical_shape() << std::endl;
+                    std::cout << "  dst tensor shape: " << meta->tensor->logical_shape() << "\n";
                 }
             }
-            std::cout << "  dst data: " << tensor->data << std::endl;
-            std::cout << "  dst view_src: " << tensor->view_src << std::endl;
-            std::cout << "  dst view_src shape: " << tensor->view_src->ne[0] << " " << tensor->view_src->ne[1] << " " << tensor->view_src->ne[2] << " " << tensor->view_src->ne[3] << std::endl;
-            std::cout << "  dst view_src stride: " << tensor->view_src->nb[0] << " " << tensor->view_src->nb[1] << " " << tensor->view_src->nb[2] << " " << tensor->view_src->nb[3] << std::endl;
-            std::cout << "  dst src0: " << src0 << std::endl;
-            std::cout << "  dst src1: " << tensor->src[1] << std::endl;
-            std::cout << "  src0 shape: " << src0->ne[0] << " " << src0->ne[1] << " " << src0->ne[2] << " " << src0->ne[3] << std::endl;
-            std::cout << "  src0 stride: " << src0->nb[0] << " " << src0->nb[1] << " " << src0->nb[2] << " " << src0->nb[3] << std::endl;
-            std::cout << "  src0 OP: " << ggml_op_desc(src0) << std::endl;
-            std::cout << "  TT parent shape: " << parent->logical_shape() << std::endl;
-            std::cout << "  TT slice start: " << start[0] << " " << start[1] << " " << start[2] << " " << start[3] << std::endl;
-            std::cout << "  TT slice end: " << end[0] << " " << end[1] << " " << end[2] << " " << end[3] << std::endl;
+            std::cout << "  dst data: " << tensor->data << "\n";
+            std::cout << "  dst view_src: " << tensor->view_src << "\n";
+            std::cout << "  dst view_src shape: " << tensor->view_src->ne[0] << " " << tensor->view_src->ne[1] << " " << tensor->view_src->ne[2] << " " << tensor->view_src->ne[3] << "\n";
+            std::cout << "  dst view_src stride: " << tensor->view_src->nb[0] << " " << tensor->view_src->nb[1] << " " << tensor->view_src->nb[2] << " " << tensor->view_src->nb[3] << "\n";
+            std::cout << "  dst src0: " << src0 << "\n";
+            std::cout << "  dst src1: " << tensor->src[1] << "\n";
+            std::cout << "  src0 shape: " << src0->ne[0] << " " << src0->ne[1] << " " << src0->ne[2] << " " << src0->ne[3] << "\n";
+            std::cout << "  src0 stride: " << src0->nb[0] << " " << src0->nb[1] << " " << src0->nb[2] << " " << src0->nb[3] << "\n";
+            std::cout << "  src0 OP: " << ggml_op_desc(src0) << "\n";
+            std::cout << "  TT parent shape: " << parent->logical_shape() << "\n";
+            std::cout << "  TT slice start: " << start[0] << " " << start[1] << " " << start[2] << " " << start[3] << "\n";
+            std::cout << "  TT slice end: " << end[0] << " " << end[1] << " " << end[2] << " " << end[3] << "\n";
+            std::cout << std::flush;
         }
 
         // Actually a reshape written as a view
@@ -1734,6 +1731,7 @@ static void ggml_backend_metalium_buffer_get_tensor(ggml_backend_buffer_t buffer
                                                 void *data, size_t offset,
                                                 size_t size)
 {
+    GGML_UNUSED(buffer);
     // Here's the general logic of get_tensor
     // 1. Get the TT tensor from the metadata
     // 2. If the TT tensor is quantized, cast it to BFLOAT16
@@ -2457,8 +2455,9 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
             fmt::println(stderr, "The TT_METAL_HOME environment variables must be set to use the Metalium backend");
             abort();
         }
-        if(!g_debug_flags.disable_program_cache)
+        if(!g_debug_flags.disable_program_cache) {
             tt::tt_metal::detail::EnablePersistentKernelCache();
+        }
         // TODO: Support multiple devices (TT supports mesh configuration so it's going to be tricky)
         // but for now we just work on 1 device at a time
         static std::unique_ptr<ggml_backend_metalium_reg_context> ctx = std::make_unique<ggml_backend_metalium_reg_context>();
@@ -2471,8 +2470,9 @@ GGML_BACKEND_API ggml_backend_reg_t ggml_backend_metalium_reg()
         for(size_t device_id = 0; device_id < num_devices; device_id++) {
             ggml_backend_metalium_device_context * dev_ctx = new ggml_backend_metalium_device_context;
             auto device = ttnn::open_mesh_device(device_id);
-            if(!g_debug_flags.disable_program_cache)
+            if(!g_debug_flags.disable_program_cache) {
                 ttnn::enable_program_cache(*device);
+            }
             // Limit device support to the ones I own (GS is removed as TTNN dropped support)
             GGML_ASSERT(device->arch() == tt::ARCH::WORMHOLE_B0);
 
