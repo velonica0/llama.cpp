@@ -7,10 +7,8 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
-#include "hostdevcommon/kernel_structs.h"
-#include "tt-metalium/tt_backend_api_types.hpp"
+#include "tt-metalium/host_buffer.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
-#include "ttnn/operations/data_movement/tilize/tilize.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -61,6 +59,4 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
-#include <cstdint>
-
 #endif
