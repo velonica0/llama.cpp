@@ -126,6 +126,7 @@ typedef struct {
     uint64_t nb2;
     uint64_t nb3;
     uint64_t offs;
+    uint64_t o1[8];
 } ggml_metal_kargs_bin;
 
 typedef struct {
@@ -230,15 +231,17 @@ typedef struct {
     uint64_t nb22;
     uint64_t nb23;
     int32_t  ne32;
+    int32_t  ne33;
     uint64_t nb31;
     uint64_t nb32;
+    uint64_t nb33;
     int32_t  ne1;
     int32_t  ne2;
     float    scale;
     float    max_bias;
     float    m0;
     float    m1;
-    uint16_t n_head_log2;
+    int32_t  n_head_log2;
     float    logit_softcap;
 } ggml_metal_kargs_flash_attn_ext;
 
@@ -375,8 +378,16 @@ typedef struct {
 typedef struct {
     int32_t  ne00;
     int32_t  ne00_4;
-    uint64_t nb01;
+    uint64_t nb1;
+    uint64_t nb2;
+    uint64_t nb3;
     float    eps;
+    int32_t  nef1[3];
+    int32_t  nef2[3];
+    int32_t  nef3[3];
+    uint64_t nbf1[3];
+    uint64_t nbf2[3];
+    uint64_t nbf3[3];
 } ggml_metal_kargs_rms_norm;
 
 typedef struct {
@@ -482,7 +493,7 @@ typedef struct {
     float    max_bias;
     float    m0;
     float    m1;
-    uint32_t n_head_log2;
+    int32_t  n_head_log2;
 } ggml_metal_kargs_soft_max;
 
 typedef struct {
@@ -517,6 +528,7 @@ typedef struct {
     int64_t  n_group;
     int64_t  n_seq_tokens;
     int64_t  n_seqs;
+    int64_t  s_off;
     uint64_t nb01;
     uint64_t nb02;
     uint64_t nb03;
