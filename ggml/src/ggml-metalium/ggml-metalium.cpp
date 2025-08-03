@@ -755,19 +755,21 @@ static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_t
     return meta->tensor;
 }
 
+inline static void ggml_metalium_op_src_sanity_check(const struct ggml_tensor * node, int idx) {
+    GGML_ASSERT(node->src[idx] != NULL);
+    GGML_ASSERT(node->src[idx]->extra != NULL);
+    auto* meta = (TensorWithMetadata*)(node->src[idx]->extra);
+    if(meta->tensor != NULL) {
+        GGML_ASSERT(meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE);
+        GGML_ASSERT(meta->tensor->layout() == tt::tt_metal::Layout::TILE);
+    }
+}
+
 // Sanity check macros to ensure that the tensors are in the correct format and we won't crash
 #define GGML_METALIUM_OP_SANITY_CHECK(_node) \
     GGML_ASSERT((_node)->extra != NULL);
 // Check if the tensor is on the device (so we wont'e be using the CPU) as well as letting us crash early
-#define GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, _idx) \
-    do { \
-        GGML_ASSERT((_node)->src[_idx] != NULL); \
-        GGML_ASSERT((_node)->src[_idx]->extra != NULL); \
-        auto _meta = (TensorWithMetadata*)((_node)->src[_idx]->extra); \
-        if(_meta->tensor != NULL) { \
-        GGML_ASSERT(_meta->tensor->storage_type() == tt::tt_metal::StorageType::DEVICE); \
-        GGML_ASSERT(_meta->tensor->layout() == tt::tt_metal::Layout::TILE); }\
-    } while(0)
+#define GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, _idx) ggml_metalium_op_src_sanity_check(_node, _idx);
 #define GGML_METALIUM_OP_SRC0_SANITY_CHECK(_node) GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, 0)
 #define GGML_METALIUM_OP_SRC1_SANITY_CHECK(_node) GGML_METALIUM_OP_SRC_SANITY_CHECK(_node, 1)
 
@@ -2291,6 +2293,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
                 return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
+            case tt::tt_metal::DataType::INT32:
                 return true;
             case tt::tt_metal::DataType::UINT8:
                 return tensor->ne[0] % 4 == 0 && tensor->ne[0] != 0;

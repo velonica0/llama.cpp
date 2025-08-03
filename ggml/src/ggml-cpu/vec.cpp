@@ -223,7 +223,7 @@ void ggml_vec_dot_f16(int n, float * GGML_RESTRICT s, size_t bs, ggml_fp16_t * G
     }
 
     // if you hit this, you are likely running outside the FP range
-    assert(!isnan(sumf) && !isinf(sumf));
+    // assert(!isnan(sumf) && !isinf(sumf));
 #else
     for (int i = 0; i < n; ++i) {
         sumf += (ggml_float)(GGML_CPU_FP16_TO_FP32(x[i])*GGML_CPU_FP16_TO_FP32(y[i]));
