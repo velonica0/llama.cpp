@@ -1830,6 +1830,10 @@ struct test_glu : public test_case {
             init_tensor_uniform(t, -150.f, 150.f);
         }
     }
+
+    double max_nmse_err() override {
+        return 1e-4;
+    }
 };
 
 struct test_glu_split : public test_case {

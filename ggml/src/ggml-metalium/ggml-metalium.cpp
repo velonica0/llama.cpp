@@ -1564,14 +1564,13 @@ static bool ggml_backend_metalium_can_glu(const struct ggml_tensor * dst)
     if(split) {
         return true;
     }
-    return true;
+    return dst->src[0]->ne[0] % 2 == 0;
 }
 
 static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
 {
     GGML_METALIUM_OP_SANITY_CHECK(dst);
     GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
-    GGML_METALIUM_OP_SRC1_SANITY_CHECK(dst);
     GGML_UNUSED(ctx);
 
     TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
@@ -1594,13 +1593,15 @@ static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struc
         using Slice = std::array<uint32_t, GGML_MAX_DIMS>;
         Slice mid = {uint32_t(w), uint32_t(dst->ne[1]), uint32_t(dst->ne[2]), uint32_t(dst->ne[3])};
         std::reverse(mid.begin(), mid.end());
+        Slice mid_start = {uint32_t(w), 0, 0, 0};
+        std::reverse(mid_start.begin(), mid_start.end());
         Slice end = {uint32_t(w * 2), uint32_t(dst->ne[1]), uint32_t(dst->ne[2]), uint32_t(dst->ne[3])};
         std::reverse(end.begin(), end.end());
         Slice begin = {0, 0, 0, 0};
         Slice stride = {1, 1, 1, 1};
 
-        a = ttnn::slice(*t, begin, mid, stride);
-        b = ttnn::slice(*t, mid, end, stride);
+        a = ttnn::slice(*t, mid_start, end, stride);
+        b = ttnn::slice(*t, begin, mid, stride);
     }
 
     
@@ -2345,7 +2346,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         case GGML_OP_OUT_PROD:
             return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
         case GGML_OP_GLU:
-            return tensor_supported(src1) && ggml_backend_metalium_can_glu(op);
+            return ((src1 && tensor_supported(src1)) || !src1) && ggml_backend_metalium_can_glu(op);
         default:
             return false;
     }
