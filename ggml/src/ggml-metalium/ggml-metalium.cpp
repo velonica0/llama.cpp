@@ -295,10 +295,8 @@ static bool is_ggml_type_supported_by_metalium(ggml_type ggtype, tt::ARCH arch) 
     return ggml2tt_type_internal(ggtype, arch) != tt::tt_metal::DataType::INVALID;
 }
 
-// NOTE: Even though returns an OwnedStorage, the borrowed buffer is still owned by the storage
-// This simply optimizes away unnecessary initializations
 template <typename SrcType, typename DstType>
-static tt::tt_metal::HostStorage data2borroweded_storage(const SrcType* src, size_t size) {
+static tt::tt_metal::HostBuffer data2borroweded_storage(const SrcType* src, size_t size) {
     // Converts GGML floating point (FP32, FP16, BF16) to TT floating point (FP32, BF16)
     using Src = std::remove_cv_t<std::remove_reference_t<SrcType>>;
     using Dst = std::remove_cv_t<std::remove_reference_t<DstType>>;
@@ -340,6 +338,7 @@ static tt::tt_metal::HostStorage data2borroweded_storage(const SrcType* src, siz
         }
     };
 
+    // Optimization: avoid unnecessary initialization and copying like vec<float>(size) as it tanks performance
     std::shared_ptr<Dst[]> vec(new Dst[size]);
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
     if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_bf16_t> && std::is_same_v<Dst, bfloat16>)) {
@@ -373,13 +372,13 @@ static tt::tt_metal::HostStorage data2borroweded_storage(const SrcType* src, siz
             }
         }
     );
-    auto storage = tt::tt_metal::HostBuffer(tt::stl::Span<DstType>(vec.get(), size), std::move(pin));
+    auto storage = tt::tt_metal::HostBuffer(ttsl::Span<DstType>(vec.get(), size), std::move(pin));
 
     return storage;
 }
 
 template <typename DstType>
-static tt::tt_metal::HostStorage ggml_quantized2owned_storage(const void* src, const ggml_tensor* tensor) {
+static tt::tt_metal::HostBuffer ggml_quantized2owned_storage(const void* src, const ggml_tensor* tensor) {
     const ggml_type_traits* trait = ggml_get_type_traits(tensor->type);
     const size_t size = ggml_nelements(tensor);
     GGML_ASSERT(trait->to_float != NULL);
@@ -403,7 +402,7 @@ static tt::tt_metal::HostStorage ggml_quantized2owned_storage(const void* src, c
                 }
             }
         );
-        return tt::tt_metal::HostBuffer(tt::stl::Span<float>(vec_ptr, size), std::move(pin));
+        return tt::tt_metal::HostBuffer(ttsl::Span<float>(vec_ptr, size), std::move(pin));
     }
     return data2borroweded_storage<float, DstType>(vec.get(), size);
 }
@@ -416,27 +415,27 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     static_assert(std::is_same_v<SrcType, float> || std::is_same_v<SrcType, bfloat16> || std::is_same_v<SrcType, uint32_t>);
 
     tt::tt_metal::Tensor row_major_tensor = ttnn::untilize(tensor).cpu();
-    GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST || row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST);
-    GGML_ASSERT(std::holds_alternative<tt::tt_metal::HostStorage>(row_major_tensor.storage()) || std::holds_alternative<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage()));
+    GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST);
+    GGML_ASSERT(std::holds_alternative<tt::tt_metal::HostStorage>(row_major_tensor.storage()));
 
     const SrcType* buf = nullptr;
     size_t buf_size = 0;
     if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST) {
         const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
-        const auto& buffer = storage.buffer;
+        const auto buffer = storage.buffer().get_shard({0, 0}).value();
         auto view = buffer.view_as<SrcType>();
         buf = view.begin();
         buf_size = view.size();
     }
-    else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
-        const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
-        GGML_ASSERT(broad_storage.distributed_buffer().shape().mesh_size() == 1 && "Only 1 is in multi device host is supported for now");
-        const tt::tt_metal::HostStorage& storage = broad_storage.distributed_buffer().get_shard({0, 0}).value();
-        const auto& buffer = storage.buffer;
-        auto view = buffer.view_as<SrcType>();
-        buf = view.begin();
-        buf_size = view.size();
-    }
+    // else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
+    //     const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
+    //     GGML_ASSERT(broad_storage.distributed_buffer().shape().mesh_size() == 1 && "Only 1 is in multi device host is supported for now");
+    //     const tt::tt_metal::HostStorage& storage = broad_storage.distributed_buffer().get_shard({0, 0}).value();
+    //     const auto& buffer = storage.buffer;
+    //     auto view = buffer.view_as<SrcType>();
+    //     buf = view.begin();
+    //     buf_size = view.size();
+    // }
     else {
         GGML_ASSERT(false && "Unsupported storage type");
     }
@@ -927,7 +926,7 @@ static bool ggml_backend_metalium_activations(ggml_backend_metalium_context * ct
             ret = ttnn::hardswish(*src_tensor, 1.f/6.f, 0.5);
             break;
         case GGML_UNARY_OP_HARDSIGMOID:
-            ret = ttnn::hardsigmoid(*src_tensor, 1.f/6.f, 0.5);
+            ret = ttnn::hardsigmoid(*src_tensor); // , 1.f/6.f, 0.5
             break;
         case GGML_UNARY_OP_STEP:
             // TODO: Make sure the resulting data type matches the input
@@ -1639,7 +1638,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         return;
     }
 
-    tt::tt_metal::HostStorage storage;
+    std::optional<tt::tt_metal::HostBuffer> storage;
     tt::tt_metal::DataType intermidiate_type = tt::tt_metal::DataType::BFLOAT16;
     if(ggtype == GGML_TYPE_F32) {
         // For now we cast F32 to BF16. Need a scalable way to handle this as WORMHOLD_B0 have native support for F32
@@ -1708,7 +1707,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         permute = perm;
     }
 
-    tt::tt_metal::Tensor t(std::move(storage.buffer), ttnn::Shape(shape)
+    tt::tt_metal::Tensor t(std::move(storage.value()), ttnn::Shape(shape)
         , intermidiate_type, tt::tt_metal::Layout::ROW_MAJOR);
 
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);

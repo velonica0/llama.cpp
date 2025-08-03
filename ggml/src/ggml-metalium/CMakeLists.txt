@@ -46,7 +46,7 @@ target_link_libraries(ggml-metalium PRIVATE
     yaml-cpp
 
     # TTNN
-    ttnncpp
+    $ENV{TT_METAL_HOME}/build/ttnn/_ttnncpp.so
 
     ggml-base
 )
