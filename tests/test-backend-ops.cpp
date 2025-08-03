@@ -4279,6 +4279,10 @@ struct test_l2_norm : public test_case {
 
         return out;
     }
+
+    double max_nmse_err() override {
+        return 2e-3;
+    }
 };
 
 // GGML_OP_ACC

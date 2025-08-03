@@ -1088,11 +1088,15 @@ static void ggml_backend_metalium_scale(ggml_backend_metalium_context * ctx, str
 
     TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
 
-    float scale;
-    memcpy(&scale, dst->op_params, sizeof(scale));
+    std::array<float, 2> params;
+    memcpy(params.data(), dst->op_params, sizeof(params));
+    auto [scale, bias] = params;
 
     auto t = realize_ggml_view(dst->src[0]);
     auto res = ttnn::multiply(*t, scale);
+    if(bias != 0.f) {
+        res = ttnn::add(res, bias);
+    }
     // TODO: Support in-place scaling
     GGML_ASSERT(!is_view(dst->src[0]));
     *dst_meta = {
@@ -2248,7 +2252,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0;
+                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;
@@ -2258,7 +2262,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
                 GGML_ASSERT(false && "Unsupported data type");
                 break;
             default:
-                return tensor->ne[0] % 32 == 0 && tensor->ne[0] != 0;
+                return tensor->ne[0] % 32 == 0 && tensor->ne[0] != 0 && tensor->ne[1] % 32 == 0 && tensor->ne[1] != 0;
         }
         GGML_UNREACHABLE();
     };
@@ -2323,6 +2327,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
 
         case GGML_OP_SIN:
         case GGML_OP_COS:
+            return true;
         case GGML_OP_ADD:
         case GGML_OP_SUB:
         case GGML_OP_MUL:
