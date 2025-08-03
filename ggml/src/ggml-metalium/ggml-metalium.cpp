@@ -441,6 +441,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     else {
         GGML_ASSERT(false && "Unsupported storage type");
     }
+
     GGML_ASSERT(buf != nullptr);
     void* intermid = nullptr;
     std::vector<std::byte> intermid_buf;
@@ -481,23 +482,43 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
 
     // Tilize to ROW_MAJOR doesn't mean the tensor is contiguous. It still has the underlying 32x32 tiles
     // we need to view into the tensor to get the contiguous data
-    const std::array<size_t, 4> stride = {padded_shape[1] * padded_shape[2] * padded_shape[3],
-                                    padded_shape[2] * padded_shape[3],
-                                    padded_shape[3],
-                                    1};
+    std::array<size_t, 4> stride = {1, 1, 1, 1};
+    if(padded_shape.size() == 4) {
+        stride = {padded_shape[1] * padded_shape[2] * padded_shape[3],
+                    padded_shape[2] * padded_shape[3],
+                    padded_shape[3],
+                    1};
+    }
+    else if(padded_shape.size() == 3) {
+        stride = {padded_shape[1] * padded_shape[2], padded_shape[2], 1, 1};
+    }
+    else if(padded_shape.size() == 2) {
+        stride = {padded_shape[1], 1, 1, 1};
+    }
+    else if(padded_shape.size() == 1) {
+        stride = {1, 1, 1, 1};
+    }
+    else {
+        GGML_ASSERT(false && "Unsupported tensor shape");
+    }
+    
+    std::array<size_t, 4> nshape {1, 1, 1, 1};
+    for(size_t i = 0; i < shape.size(); i++) {
+        nshape[4 - shape.size() + i] = shape[i];
+    }
     static_assert(GGML_MAX_DIMS == 4, "Looping depth is hardcoded to 4");
     size_t idx = 0;
-    for(size_t w = 0; w < shape[0]; w++) {
-        for(size_t z = 0; z < shape[1]; z++) {
-            for(size_t y = 0; y < shape[2]; y++) {
+    for(size_t w = 0; w < nshape[0]; w++) {
+        for(size_t z = 0; z < nshape[1]; z++) {
+            for(size_t y = 0; y < nshape[2]; y++) {
                 if(src_dst_same) {
                     // optimization: copy a chunk of memory at a time
                     const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2];
-                    memcpy((SrcType*)intermid + idx, buf + src_idx, sizeof(SrcType) * shape[3]);
-                    idx += shape[3];
+                    memcpy((SrcType*)intermid + idx, buf + src_idx, sizeof(SrcType) * nshape[3]);
+                    idx += nshape[3];
                 }
                 else {
-                    for(size_t x = 0; x < shape[3]; x++) {
+                    for(size_t x = 0; x < nshape[3]; x++) {
                         const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2] + x * stride[3];
                         GGML_ASSERT(src_idx < buf_size);
                         float val = src_adaptor(buf[src_idx]);
@@ -2267,7 +2288,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                // return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
+                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;

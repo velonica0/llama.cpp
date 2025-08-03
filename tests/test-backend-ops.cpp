@@ -4106,6 +4106,10 @@ struct test_sum : public test_case {
     float grad_eps() override {
         return 0.1f * sqrtf(ne[0]*ne[1]*ne[2]*ne[3]);
     }
+
+    double max_maa_err() override {
+        return 1e-4;
+    }
 };
 
 // GGML_OP_SUM_ROWS
