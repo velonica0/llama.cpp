@@ -1524,6 +1524,21 @@ static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * 
     auto src1 = realize_ggml_view(dst->src[1]);
 
     auto res = ttnn::outer(*src1, *src0);
+    // HACK: GGML and TT has different ideas about the shape of the result, sometimes
+    if(!ggml_tt_tensors_shape_equal(dst, res)) {
+        // Magic herustics
+        if(dst->ne[3] == res.logical_shape()[2]) {
+            res = ttnn::transpose(res, 0, 2);
+        }
+        else if(dst->ne[2] == res.logical_shape()[2]) {
+            res = ttnn::transpose(res, 1, 2);
+        }
+        else {
+            std::cerr << "GGML shape: " << dst->ne[0] << ", " << dst->ne[1] << ", " << dst->ne[2] << ", " << dst->ne[3] << std::endl;
+            std::cerr << "TT shape: " << res.logical_shape() << std::endl;
+            GGML_ASSERT(false && "Unsupported outer product shape mismatch");
+        }
+    }
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(res),
         .ggtype = dst->type,
@@ -2252,7 +2267,7 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         switch(tt_type) {
             case tt::tt_metal::DataType::BFLOAT16:
             case tt::tt_metal::DataType::UINT16:
-                return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
+                // return tensor->ne[0] % 2 == 0 && tensor->ne[0] != 0; // NOTE: This should be enablable by now (Was a limitation of ancient TTNN versions)
             case tt::tt_metal::DataType::FLOAT32:
             case tt::tt_metal::DataType::UINT32:
                 return true;
