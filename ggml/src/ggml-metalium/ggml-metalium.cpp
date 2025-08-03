@@ -7,6 +7,7 @@
 
 #include "tt-metalium/host_buffer.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
+#include "ttnn/operations/eltwise/binary/binary.hpp"
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
@@ -16,6 +17,7 @@
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
 #include "types/arch.h"
+#include <sys/types.h>
 #include <algorithm>
 #include <array>
 #include <cstddef>
@@ -1556,6 +1558,81 @@ static void ggml_backend_metalium_sum_rows(ggml_backend_metalium_context * ctx, 
     };
 }
 
+static bool ggml_backend_metalium_can_glu(const struct ggml_tensor * dst)
+{
+    bool split = dst->src[1] != NULL;
+    if(split) {
+        return true;
+    }
+    return true;
+}
+
+static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
+{
+    GGML_METALIUM_OP_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC0_SANITY_CHECK(dst);
+    GGML_METALIUM_OP_SRC1_SANITY_CHECK(dst);
+    GGML_UNUSED(ctx);
+
+    TensorWithMetadata* dst_meta = (TensorWithMetadata*)dst->extra;
+    TensorWithMetadata* src0_meta = (TensorWithMetadata*)dst->src[0]->extra;
+
+    ttnn::Tensor a;
+    ttnn::Tensor b;
+    int swap = ggml_get_op_params_i32(dst, 1);
+    bool split = dst->src[1] != NULL;
+
+    if(split) {
+        a = *realize_ggml_view(dst->src[1]);
+        b = *realize_ggml_view(dst->src[0]);
+    }
+    else {
+        auto t = realize_ggml_view(dst->src[0]);
+        // split along the last dimension
+        int64_t w = dst->ne[0];
+
+        using Slice = std::array<uint32_t, GGML_MAX_DIMS>;
+        Slice mid = {uint32_t(w), uint32_t(dst->ne[1]), uint32_t(dst->ne[2]), uint32_t(dst->ne[3])};
+        std::reverse(mid.begin(), mid.end());
+        Slice end = {uint32_t(w * 2), uint32_t(dst->ne[1]), uint32_t(dst->ne[2]), uint32_t(dst->ne[3])};
+        std::reverse(end.begin(), end.end());
+        Slice begin = {0, 0, 0, 0};
+        Slice stride = {1, 1, 1, 1};
+
+        a = ttnn::slice(*t, begin, mid, stride);
+        b = ttnn::slice(*t, mid, end, stride);
+    }
+
+    
+    if(swap) {
+        std::swap(a, b);
+    }
+
+    ttnn::Tensor res;
+    // TODO: Put intermediate tensors on L1
+    switch(ggml_get_glu_op(dst)) {
+        case GGML_GLU_OP_REGLU:
+            res = ttnn::multiply(a, ttnn::relu(b));
+            break;
+        case GGML_GLU_OP_GEGLU_ERF: // ?
+        case GGML_GLU_OP_GEGLU_QUICK:
+        case GGML_GLU_OP_GEGLU:
+            res = ttnn::multiply(a, ttnn::gelu(b));
+            break;
+        case GGML_GLU_OP_SWIGLU:
+            res = ttnn::multiply(a, ttnn::swish(b));
+            break;
+        default:
+            GGML_ASSERT(false && "Unsupported GLU operation");
+    }
+
+    *dst_meta = {
+        .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(res)),
+        .ggtype = dst->type,
+        .bufctx = src0_meta->bufctx
+    };
+}
+
 // backend interface
 
 static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
@@ -2098,6 +2175,10 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_SUM_ROWS:
                 ggml_backend_metalium_sum_rows(ctx, node);
                 break;
+            
+            case GGML_OP_GLU:
+                ggml_backend_metalium_glu(ctx, node);
+                break;
 
             case GGML_OP_NONE:
                 break;
@@ -2263,6 +2344,8 @@ static bool ggml_backend_metalium_device_supports_op_internal(ggml_backend_dev_t
         //     return ggml_backend_metalium_can_repeat(op);
         case GGML_OP_OUT_PROD:
             return tensor_supported(src1) && ggml_backend_metalium_can_outer_product(op);
+        case GGML_OP_GLU:
+            return tensor_supported(src1) && ggml_backend_metalium_can_glu(op);
         default:
             return false;
     }
