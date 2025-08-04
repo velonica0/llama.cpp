@@ -67,7 +67,7 @@ struct ggml_backend_metalium_context {
 };
 
 struct ggml_backend_metalium_device_context {
-    std::shared_ptr<ttnn::IDevice> device = nullptr;
+    std::shared_ptr<ttnn::MeshDevice> device = nullptr;
     int device_id = -1;
     std::string name;
     std::string description;
@@ -83,7 +83,7 @@ struct ggml_backend_metalium_buffer_context {
 
     size_t ggml_buffer_size_bytes = 0;
     std::string name;
-    std::shared_ptr<ttnn::IDevice> device = nullptr;
+    std::shared_ptr<ttnn::MeshDevice> device = nullptr;
     size_t base_offset = 0;
 
     // Tracking our own allocations because Metalium limitations and GGML assuming them
@@ -426,7 +426,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
         const auto buffer = storage.buffer().get_shard({0, 0}).value();
         auto view = buffer.view_as<SrcType>();
-        buf = view.begin();
+        buf = &view[0];
         buf_size = view.size();
     }
     // else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
@@ -563,7 +563,7 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
     return ttnn::reshape(tensor, ttnn::Shape(target_shape));
 }
 
-static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::IDevice* device, const struct ggml_tensor * node)
+static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::MeshDevice* device, const struct ggml_tensor * node)
 {
     GGML_ASSERT(tensor.layout() == tt::tt_metal::Layout::ROW_MAJOR);
     GGML_ASSERT(tensor.storage_type() == tt::tt_metal::StorageType::HOST);
@@ -948,7 +948,7 @@ static bool ggml_backend_metalium_activations(ggml_backend_metalium_context * ct
             ret = ttnn::silu(*src_tensor);
             break;
         case GGML_UNARY_OP_HARDSWISH:
-            ret = ttnn::hardswish(*src_tensor, 1.f/6.f, 0.5);
+            ret = ttnn::hardswish(*src_tensor); // , 1.f/6.f, 0.5
             break;
         case GGML_UNARY_OP_HARDSIGMOID:
             ret = ttnn::hardsigmoid(*src_tensor); // , 1.f/6.f, 0.5
@@ -1331,7 +1331,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             const uint32_t n_head_log2 = 1u << (uint32_t) std::floor(std::log2(n_head));
             const float m0 = powf(2.0f, -(max_bias       ) / n_head_log2);
             const float m1 = powf(2.0f, -(max_bias / 2.0f) / n_head_log2);
-            auto make_tile = [](const tt::tt_metal::Tensor& t, ttnn::IDevice* dev) {
+            auto make_tile = [](const tt::tt_metal::Tensor& t, ttnn::MeshDevice* dev) {
                 return ttnn::tilize_with_zero_padding(t.to_device(dev));
             };
 
@@ -1557,8 +1557,8 @@ static void ggml_backend_metalium_outer_product(ggml_backend_metalium_context * 
             res = ttnn::transpose(res, 1, 2);
         }
         else {
-            std::cerr << "GGML shape: " << dst->ne[0] << ", " << dst->ne[1] << ", " << dst->ne[2] << ", " << dst->ne[3] << std::endl;
-            std::cerr << "TT shape: " << res.logical_shape() << std::endl;
+            std::cerr << "GGML shape: " << dst->ne[0] << ", " << dst->ne[1] << ", " << dst->ne[2] << ", " << dst->ne[3] << "\n";
+            std::cerr << "TT shape: " << res.logical_shape() << "\n";
             GGML_ASSERT(false && "Unsupported outer product shape mismatch");
         }
     }
@@ -1692,7 +1692,7 @@ static void ggml_backend_metalium_free(ggml_backend_t backend) {
 }
 
 struct ggml_backend_metalium_buffer_type_context {
-    std::shared_ptr<ttnn::IDevice> device = nullptr;
+    std::shared_ptr<ttnn::MeshDevice> device = nullptr;
     std::string name;
 };
 
