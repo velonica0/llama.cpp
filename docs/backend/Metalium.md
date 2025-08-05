@@ -26,20 +26,20 @@ As mentioned earlier, the Metalium backend is experimental software. Thus featur
 * Only device 0 is used
 * No device clustering support
 * KV Cache has to be stored on the CPU (via the `-nkvo` flag)
-* FP32 is emulated by internally using BFP16
-   * Native FP32 will be enabled for Wormhole soon
+* FP32 is emulated by internally using BFP16 (The matrix unit does not support FP32 natively, though the vector unit does)
 
 ### Dependencies
 
-TBD. I don't have a formal list of what is needed for now. But either install from your system's package manager or build from source.
+TBD. I don't have a formal list of what is needed for now. But you need to get TTNN/Metalium built and installed. And make the dependencies available to the llama.cpp build system.
 
 ### Building and using the backend
 
 There is no "supported" TTNN versions Metalium and TTNN is still a moving target. Instead, need and support for newer versions of TTNN is constantly updated in order to utilize new features and take in bug fixes. However, generally build the latest Metalium and TTNN from the [official repostory](https://github.com/tenstorrent/tt-metal) by following the steps
 
 1. Setup you environment/driver following the [official guide](https://github.com/tenstorrent/tt-metal/blob/main/INSTALLING.md)
-  * As of writing, the official guide still references an old `ARCH_NAME` variable. Which is no longer needed
-2. Build Metalium (and TTNN) with GCC (DO NOT use clang, they link against libc++ if clang is detected)
+   * As of writing, the official guide still references an old `ARCH_NAME` variable. Which is no longer needed
+2. Build Metalium (and TTNN) with GCC and install to the build directory.
+   * Officially GCC >= 12 and Clang >= 17 is supported.
 
 
 ```bash
@@ -76,7 +76,7 @@ bin/llama-cli -ngl 23 -m tinyllama-1.1b-chat-v1.0.Q4_0.gguf -p "The solution to 
 
 ### Hardware support
 
-The following hardware ate tested
+The following hardware are tested.
 
 | Tenstorrent Device            | Status  |
 |:-----------------------------:|:-------:|
@@ -142,5 +142,5 @@ There are several debug flags available to assist with debugging/performance of 
 | Variable Name                    | Value           | Description                                                                                                                                                              |
 |----------------------------------|-----------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | GGML_METALIUM_PRINT_REJECTED_OPS | 0(default) or 1 | Print operators GGML asked if the Metalium backend can run, and Metalium reported false                                                                                  |
-| GGML_METALIUM_PRINT_VIEW         | 0(default) or 1 | Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that Metalium's lazy view system sees                                                                      |
+| GGML_METALIUM_PRINT_VIEW         | 0(default) or 1 | Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that the backend's lazy view system sees                                                                      |
 | GGML_METALIUM_CACHE_MM_TRANSPOSE | 0(default) or 1 | TTNN has limited support for pre-transposed matmul that GGML needs and does most on the fly. This options cache the transpose. Trades lot of memory for some performance |
