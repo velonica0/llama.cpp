@@ -16,6 +16,7 @@
 #include "ttnn/tensor/storage.hpp"
 #include "ttnn/tensor/tensor.hpp"
 #include "ttnn/tensor/types.hpp"
+#include "ttnn/types.hpp"
 #include "types/arch.h"
 #include <sys/types.h>
 #include <algorithm>
@@ -344,6 +345,7 @@ static tt::tt_metal::HostBuffer data2borroweded_storage(const SrcType* src, size
     std::shared_ptr<Dst[]> vec(new Dst[size]);
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
     if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_bf16_t> && std::is_same_v<Dst, bfloat16>)) {
+        static_assert(sizeof(Src) == sizeof(Dst), "Src and Dst must have the same size");
         // Make GCC shut up about writing into a class like it's flat memory
         memcpy((void*)vec.get(), src, size * sizeof(Src));
     }
@@ -514,7 +516,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         }
     }
     // If the 2nd dimension is not divisible by 32, we can still copy block by block
-    else if(src_dst_same && !need_quantized_conversion && nshape[0] % 32 == 0 && nshape[1] % 32 != 0 && shape.size() == 4) {
+    else if(src_dst_same && !need_quantized_conversion && nshape[0] % 32 == 0 && nshape[1] % 32 != 0) {
         const size_t src_block_size = nshape[2] * nshape[3];
         const size_t src_block_stride = stride[1];
         for(size_t i=0;i<nshape[0]*nshape[1];i++) {
@@ -1136,9 +1138,13 @@ static void ggml_backend_metalium_scale(ggml_backend_metalium_context * ctx, str
     auto [scale, bias] = params;
 
     auto t = realize_ggml_view(dst->src[0]);
-    auto res = ttnn::multiply(*t, scale);
-    if(bias != 0.f) {
-        res = ttnn::add(res, bias);
+    ttnn::Tensor res;
+    if(bias == 0.f) {
+        res = ttnn::multiply(*t, scale);
+    }
+    else {
+        ttnn::MemoryConfig l1cfg(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::L1);
+        res = ttnn::multiply(*t, ttnn::add(res, bias, std::nullopt, l1cfg));
     }
     // TODO: Support in-place scaling
     GGML_ASSERT(!is_view(dst->src[0]));
@@ -2114,6 +2120,7 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             continue;
         }
 
+        // std::cout << ggml_op_name(node->op) << " node " << node->name << " with address " << node->data << std::endl;
         switch (node->op) {
             case GGML_OP_UNARY: {
                 ggml_unary_op unary_op = ggml_get_unary_op(node);
