@@ -524,7 +524,9 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         }
     }
     // If we can do row-by-row copy
-    else if(src_dst_same && !need_quantized_conversion) {
+    else if(src_dst_same && !need_quantized_conversion
+        // so we don't call memcpy on 1 element which is not worth it
+        && shape[3] > 1) {
         const size_t dst_stride = nshape[3];
         for(size_t i = 0; i < nshape[0] * nshape[1]; i++) {
             for(size_t j = 0; j < nshape[2]; j++) {
