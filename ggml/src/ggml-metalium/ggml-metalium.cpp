@@ -420,27 +420,11 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     GGML_ASSERT(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST);
     GGML_ASSERT(std::holds_alternative<tt::tt_metal::HostStorage>(row_major_tensor.storage()));
 
-    const SrcType* buf = nullptr;
-    size_t buf_size = 0;
-    if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::HOST) {
-        const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
-        const auto buffer = storage.buffer().get_shard({0, 0}).value();
-        auto view = buffer.view_as<SrcType>();
-        buf = &view[0];
-        buf_size = view.size();
-    }
-    // else if(row_major_tensor.storage_type() == tt::tt_metal::StorageType::MULTI_DEVICE_HOST) {
-    //     const tt::tt_metal::MultiDeviceHostStorage& broad_storage = std::get<tt::tt_metal::MultiDeviceHostStorage>(row_major_tensor.storage());
-    //     GGML_ASSERT(broad_storage.distributed_buffer().shape().mesh_size() == 1 && "Only 1 is in multi device host is supported for now");
-    //     const tt::tt_metal::HostStorage& storage = broad_storage.distributed_buffer().get_shard({0, 0}).value();
-    //     const auto& buffer = storage.buffer;
-    //     auto view = buffer.view_as<SrcType>();
-    //     buf = view.begin();
-    //     buf_size = view.size();
-    // }
-    else {
-        GGML_ASSERT(false && "Unsupported storage type");
-    }
+    const tt::tt_metal::HostStorage& storage = std::get<tt::tt_metal::HostStorage>(row_major_tensor.storage());
+    const auto buffer = storage.buffer().get_shard({0, 0}).value();
+    auto view = buffer.view_as<SrcType>();
+    const SrcType* buf = &view[0];
+    size_t buf_size = view.size();
 
     GGML_ASSERT(buf != nullptr);
     void* intermid = nullptr;
@@ -507,17 +491,53 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         nshape[4 - shape.size() + i] = shape[i];
     }
     static_assert(GGML_MAX_DIMS == 4, "Looping depth is hardcoded to 4");
-    size_t idx = 0;
-    for(size_t w = 0; w < nshape[0]; w++) {
-        for(size_t z = 0; z < nshape[1]; z++) {
-            for(size_t y = 0; y < nshape[2]; y++) {
-                if(src_dst_same) {
-                    // optimization: copy a chunk of memory at a time
-                    const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2];
-                    memcpy((SrcType*)intermid + idx, buf + src_idx, sizeof(SrcType) * nshape[3]);
-                    idx += nshape[3];
-                }
-                else {
+
+    // Sanity check: src_dst_same shuld indicate there is no need for quantized conversion
+    GGML_ASSERT(((src_dst_same && !need_quantized_conversion) || !src_dst_same) && "src and dst should be the same type if src_dst_same is true");
+    // Optimization: If the source shape indicates that the tensor is contiguous in memory - memcpy it directly or (since we are converting to float) abuse the pointer
+    // NOTE: The following optimizations are not full and has some slow paths taken unoptimally. But good enough for now
+    if(nshape[3] % 32 == 0 && ((nshape[0] == 1 && nshape[1] == 1) || nshape[2] % 32 == 0)) {
+        const size_t buf_size = std::accumulate(nshape.begin(), nshape.end(), 1, std::multiplies<size_t>());
+        if(src_dst_same && !need_quantized_conversion) {
+            memcpy(dst, buf, sizeof(SrcType) * buf_size);
+            return;
+        }
+        if(std::is_same_v<SrcType, float>) {
+            // Pointer abuse
+            intermid = const_cast<void*>(static_cast<const void*>(buf));
+        }
+        else {
+            for(size_t i = 0; i < buf_size; i++) {
+                float val = src_adaptor(buf[i]);
+                ((float*)intermid)[i] = val;
+            }
+        }
+    }
+    // If the 2nd dimension is not divisible by 32, we can still copy block by block
+    else if(src_dst_same && !need_quantized_conversion && nshape[0] % 32 == 0 && nshape[1] % 32 != 0 && shape.size() == 4) {
+        const size_t src_block_size = nshape[2] * nshape[3];
+        const size_t src_block_stride = stride[1];
+        for(size_t i=0;i<nshape[0]*nshape[1];i++) {
+            memcpy((SrcType*)intermid + i * src_block_size, buf + i * src_block_stride, sizeof(SrcType) * src_block_size);
+        }
+    }
+    // If we can do row-by-row copy
+    else if(src_dst_same && !need_quantized_conversion) {
+        const size_t dst_stride = nshape[3];
+        for(size_t i = 0; i < nshape[0] * nshape[1]; i++) {
+            for(size_t j = 0; j < nshape[2]; j++) {
+                // optimization: copy a row of memory at a time
+                const size_t src_idx = i * stride[1] + j * stride[2];
+                memcpy((SrcType*)intermid + i * dst_stride, buf + src_idx, sizeof(SrcType) * nshape[3]);
+            }
+        }
+    }
+    // Slow path: src and dst are different types or the data is not contiguous in memory
+    else {
+        size_t idx = 0;
+        for(size_t w = 0; w < nshape[0]; w++) {
+            for(size_t z = 0; z < nshape[1]; z++) {
+                for(size_t y = 0; y < nshape[2]; y++) {
                     for(size_t x = 0; x < nshape[3]; x++) {
                         const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2] + x * stride[3];
                         GGML_ASSERT(src_idx < buf_size);
@@ -1686,7 +1706,6 @@ static const char * ggml_backend_metalium_name(ggml_backend_t backend) {
 
 static void ggml_backend_metalium_free(ggml_backend_t backend) {
     ggml_backend_metalium_context * ctx = (ggml_backend_metalium_context *)backend->context;
-    ctx->device->close();
     delete ctx;
     delete backend;
 }

@@ -9,6 +9,8 @@
 - [DataType Supports](#datatype-supports)
 - [Environment Variable](#environment-variable)
 
+> **IMPOTANT NOTE**: Although the author is a Tenstorrent employee, this backend is not an official Tenstorrent product. It started by the author pre-joining Tenstorrent and is developed in the author's free time. It is not supported by Tenstorrent, but the author is happy to help with issues and questions on the [Tenstorrent Discord server](https://discord.gg/tenstorrent). Just don't expect official support or bug fixes from Tenstorrent.
+
 ## Background
 
 Tenstorrent produces a range of ASICs with very scalable design that enables efficient inference of AI models.
@@ -112,7 +114,7 @@ Besides the standard FP32 and BFP16 floating point support. Tenstorrent processo
 | GGML_TYPE_IQ4_XS      | Unsupported                |
 | GGML_TYPE_I8          | Unsupported                |
 | GGML_TYPE_I16         | Unsupported                |
-| GGML_TYPE_I32         | Unsupported                |
+| GGML_TYPE_I32         | INT32                      |
 | GGML_TYPE_I64         | Unsupported                |
 | GGML_TYPE_F64         | Unsupported                |
 | GGML_TYPE_IQ1_M       | Unsupported                |
@@ -131,7 +133,7 @@ Besides the standard FP32 and BFP16 floating point support. Tenstorrent processo
 
 | Variable Name | Value                                | Description                                                          |
 |---------------|--------------------------------------|----------------------------------------------------------------------|
-| TT_METAL_HOME | string  (mandatory)                  | Path to the repository which tt-metal is built                       |
+| TT_METAL_HOME | string  (mandatory)                  | Path to the root of the tt-metal repository                          |
 
 
 
@@ -144,3 +146,7 @@ There are several debug flags available to assist with debugging/performance of 
 | GGML_METALIUM_PRINT_REJECTED_OPS | 0(default) or 1 | Print operators GGML asked if the Metalium backend can run, and Metalium reported false                                                                                  |
 | GGML_METALIUM_PRINT_VIEW         | 0(default) or 1 | Print all view operations (VIEW, TRANSPOSE, RESHAPE, PERMUTE) that the backend's lazy view system sees                                                                      |
 | GGML_METALIUM_CACHE_MM_TRANSPOSE | 0(default) or 1 | TTNN has limited support for pre-transposed matmul that GGML needs and does most on the fly. This options cache the transpose. Trades lot of memory for some performance |
+
+## Know issues
+
+- The backend cannot peacefully exit due to the lack of a proper shutdown sequence GGML's API. Forcing use of static variables thus destruction is non-deterministic.

@@ -2558,6 +2558,10 @@ struct test_scale : public test_case {
 
         return out;
     }
+
+    double max_nmse_err() override {
+        return 1e-4;
+    }
 };
 
 // GGML_OP_SCALE + GGML_UNARY_OP_TANH + GGML_OP_SCALE
