@@ -5,6 +5,7 @@
 #include "ggml-cpu.h"
 #include "ggml-metalium.h"
 
+#include "tt-metalium/bfloat16.hpp"
 #include "tt-metalium/host_buffer.hpp"
 #include "ttnn/operations/core/compute_kernel/compute_kernel_config.hpp"
 #include "ttnn/operations/eltwise/binary/binary.hpp"
@@ -504,14 +505,13 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
             memcpy(dst, buf, sizeof(SrcType) * buf_size);
             return;
         }
-        if(std::is_same_v<SrcType, float>) {
+        if(std::is_same_v<SrcType, float> && need_quantized_conversion) {
             // Pointer abuse
             intermid = const_cast<void*>(static_cast<const void*>(buf));
         }
         else {
             for(size_t i = 0; i < buf_size; i++) {
-                float val = src_adaptor(buf[i]);
-                ((float*)intermid)[i] = val;
+                ((float*)intermid)[i] = src_adaptor(buf[i]);
             }
         }
     }
@@ -526,7 +526,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     // If we can do row-by-row copy
     else if(src_dst_same && !need_quantized_conversion
         // so we don't call memcpy on 1 element which is not worth it
-        && shape[3] > 1) {
+        && shape[3] >= 4) {
         const size_t dst_stride = nshape[3];
         for(size_t i = 0; i < nshape[0] * nshape[1]; i++) {
             for(size_t j = 0; j < nshape[2]; j++) {
@@ -545,8 +545,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
                     for(size_t x = 0; x < nshape[3]; x++) {
                         const size_t src_idx = w * stride[0] + z * stride[1] + y * stride[2] + x * stride[3];
                         GGML_ASSERT(src_idx < buf_size);
-                        float val = src_adaptor(buf[src_idx]);
-                        ((float*)intermid)[idx] = val;
+                        ((float*)intermid)[idx] = src_adaptor(buf[src_idx]);
                         idx++;
                     }
                 }
