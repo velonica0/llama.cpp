@@ -343,22 +343,22 @@ static tt::tt_metal::HostBuffer data2borroweded_storage(const SrcType* src, size
     };
 
     // Optimization: avoid unnecessary initialization and copying like vec<float>(size) as it tanks performance
-    std::shared_ptr<Dst[]> vec(new Dst[size]);
+    Dst* vec = new Dst[size];
     // special case if both GGML and TT types have the same underlying type (e.g. both FP32 or BF16)
     if constexpr(std::is_same_v<Src, Dst> || (std::is_same_v<Src, ggml_bf16_t> && std::is_same_v<Dst, bfloat16>)) {
         static_assert(sizeof(Src) == sizeof(Dst), "Src and Dst must have the same size");
         // Make GCC shut up about writing into a class like it's flat memory
-        memcpy((void*)vec.get(), src, size * sizeof(Src));
+        memcpy((void*)vec, src, size * sizeof(Src));
     }
     // special case for BFP16 (much faster then TTNN's implementation)
     else if constexpr(std::is_same_v<Src, float> && std::is_same_v<Dst, bfloat16>) {
         const auto* trait = ggml_get_type_traits_cpu(GGML_TYPE_BF16);
         assert(trait != nullptr);
-        trait->from_float(src, vec.get(), size);
+        trait->from_float(src, vec, size);
     }
     else {
         for(size_t i = 0; i < size; i++) {
-            dst_adaptor(vec.get()[i], src_adaptor(src[i]));
+            dst_adaptor(vec[i], src_adaptor(src[i]));
         }
     }
 
@@ -372,12 +372,12 @@ static tt::tt_metal::HostBuffer data2borroweded_storage(const SrcType* src, size
             (*refcount)--;
             if(*refcount == 0) {
                 delete refcount;
-                vec.reset();
+                delete [] vec;
                 refcount = nullptr;
             }
         }
     );
-    auto storage = tt::tt_metal::HostBuffer(ttsl::Span<DstType>(vec.get(), size), std::move(pin));
+    auto storage = tt::tt_metal::HostBuffer(ttsl::Span<DstType>(vec, size), std::move(pin));
 
     return storage;
 }
@@ -524,9 +524,9 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         }
     }
     // If we can do row-by-row copy
-    else if(src_dst_same && !need_quantized_conversion
-        // so we don't call memcpy on 1 element which is not worth it
-        && shape[3] >= 4) {
+    // Only avoid small copies via memcpy if not copying into FP32 - we rely on raw copies for other types as the 
+    // fallback loop asserts FP32
+    else if(src_dst_same && !need_quantized_conversion && (shape[3] >= 4 || !std::is_same_v<SrcType, float>)) {
         const size_t dst_stride = nshape[3];
         for(size_t i = 0; i < nshape[0] * nshape[1]; i++) {
             for(size_t j = 0; j < nshape[2]; j++) {

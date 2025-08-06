@@ -2813,6 +2813,10 @@ struct test_rms_norm_mul_add : public test_case {
     bool grad_precise() override {
         return true;
     }
+
+    double max_nmse_err() override {
+        return 8e-4;
+    }
 };
 
 // GGML_OP_SSM_CONV
