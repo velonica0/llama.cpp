@@ -587,18 +587,6 @@ static tt::tt_metal::Tensor reshape_tt_tensor_into_ggml(const tt::tt_metal::Tens
     return ttnn::reshape(tensor, ttnn::Shape(target_shape));
 }
 
-static tt::tt_metal::Tensor reshape_host_tt_tensor_into_ggml(const tt::tt_metal::Tensor& tensor, ttnn::MeshDevice* device, const struct ggml_tensor * node)
-{
-    GGML_ASSERT(tensor.layout() == tt::tt_metal::Layout::ROW_MAJOR);
-    GGML_ASSERT(tensor.storage_type() == tt::tt_metal::StorageType::HOST);
-    std::array<uint32_t, GGML_MAX_DIMS> target_shape;
-    for(int i = 0; i < GGML_MAX_DIMS; i++) {
-        target_shape[i] = node->ne[GGML_MAX_DIMS - i - 1];
-    }
-
-    return ttnn::tilize_with_zero_padding(tensor.reshape(ttnn::Shape(target_shape)).to_device(device));
-}
-
 static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view_impl(const ggml_tensor* tensor);
 static std::shared_ptr<tt::tt_metal::Tensor> realize_ggml_view(const ggml_tensor* tensor)
 {
