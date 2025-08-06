@@ -1143,8 +1143,7 @@ static void ggml_backend_metalium_scale(ggml_backend_metalium_context * ctx, str
         res = ttnn::multiply(*t, scale);
     }
     else {
-        ttnn::MemoryConfig l1cfg(ttnn::TensorMemoryLayout::INTERLEAVED, ttnn::BufferType::L1);
-        res = ttnn::multiply(*t, ttnn::add(res, bias, std::nullopt, l1cfg));
+        res = ttnn::add(ttnn::multiply(*t, scale, std::nullopt, ttnn::L1_MEMORY_CONFIG), bias);
     }
     // TODO: Support in-place scaling
     GGML_ASSERT(!is_view(dst->src[0]));
