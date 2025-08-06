@@ -1666,18 +1666,17 @@ static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struc
     }
 
     ttnn::Tensor res;
-    // TODO: Put intermediate tensors on L1
     switch(ggml_get_glu_op(dst)) {
         case GGML_GLU_OP_REGLU:
-            res = ttnn::multiply(a, ttnn::relu(b));
+            res = ttnn::multiply(a, ttnn::relu(b, ttnn::L1_MEMORY_CONFIG));
             break;
         case GGML_GLU_OP_GEGLU_ERF: // ?
         case GGML_GLU_OP_GEGLU_QUICK:
         case GGML_GLU_OP_GEGLU:
-            res = ttnn::multiply(a, ttnn::gelu(b));
+            res = ttnn::multiply(a, ttnn::gelu(b, false, ttnn::L1_MEMORY_CONFIG));
             break;
         case GGML_GLU_OP_SWIGLU:
-            res = ttnn::multiply(a, ttnn::swish(b));
+            res = ttnn::multiply(a, ttnn::swish(b, ttnn::L1_MEMORY_CONFIG));
             break;
         default:
             GGML_ASSERT(false && "Unsupported GLU operation");
@@ -1799,6 +1798,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         fmt::println(stderr, "Unsupported data type while uploading to device: {}, name '{}', op type: {}\n", ggml_type_name(ggtype), tensor->name, ggml_op_name(tensor->op));
         GGML_ASSERT(false && "Unsupported data type while uploading to device");
     }
+    GGML_ASSERT(storage.has_value() && "Failed to convert data to TT storage");
 
     ttsl::SmallVector<uint32_t> shape(GGML_MAX_DIMS, 1);
     for(int i = 0; i < GGML_MAX_DIMS; i++) {
@@ -1840,7 +1840,7 @@ static void ggml_backend_metalium_buffer_set_tensor(ggml_backend_buffer_t buffer
         permute = perm;
     }
 
-    tt::tt_metal::Tensor t(std::move(storage.value()), ttnn::Shape(shape)
+    tt::tt_metal::Tensor t(std::move(*storage), ttnn::Shape(shape)
         , intermidiate_type, tt::tt_metal::Layout::ROW_MAJOR);
 
     tt::tt_metal::DataType final_type = ggml2tt_type(ggtype, processor_class);
