@@ -488,7 +488,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     else {
         GGML_ASSERT(false && "Unsupported tensor shape");
     }
-    
+
     std::array<size_t, 4> nshape {1, 1, 1, 1};
     for(size_t i = 0; i < shape.size(); i++) {
         nshape[4 - shape.size() + i] = shape[i];
@@ -524,7 +524,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         }
     }
     // If we can do row-by-row copy
-    // Only avoid small copies via memcpy if not copying into FP32 - we rely on raw copies for other types as the 
+    // Only avoid small copies via memcpy if not copying into FP32 - we rely on raw copies for other types as the
     // fallback loop asserts FP32
     else if(src_dst_same && !need_quantized_conversion && (shape[3] >= 4 || !std::is_same_v<SrcType, float>)) {
         const size_t dst_stride = nshape[3];
@@ -1660,7 +1660,7 @@ static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struc
         b = ttnn::slice(*t, begin, mid, stride);
     }
 
-    
+
     if(swap) {
         std::swap(a, b);
     }
@@ -2232,7 +2232,7 @@ static enum ggml_status ggml_backend_metalium_graph_compute(ggml_backend_t backe
             case GGML_OP_SUM_ROWS:
                 ggml_backend_metalium_sum_rows(ctx, node);
                 break;
-            
+
             case GGML_OP_GLU:
                 ggml_backend_metalium_glu(ctx, node);
                 break;
