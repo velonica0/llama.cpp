@@ -12,7 +12,6 @@
 #include "ttnn/operations/eltwise/binary/binary_composite.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 #include "ttnn/operations/moreh/moreh_group_norm/moreh_group_norm.hpp"
-#include "ttnn/operations/normalization/softmax/device/softmax_op.hpp"
 #include "ttnn/tensor/shape/shape.hpp"
 #include "ttnn/tensor/storage.hpp"
 #include "ttnn/tensor/tensor.hpp"
@@ -1361,8 +1360,7 @@ static void ggml_backend_metalium_softmax(ggml_backend_metalium_context * ctx, s
             x = ttnn::add(x, ttnn::multiply(*mask, positional_bias));
         }
     }
-    ttnn::DeviceComputeKernelConfig cfg = make_compute_kernel_config(x.device());
-    x = ttnn::operations::normalization::softmax(x, tt::tt_metal::operation::DEFAULT_OUTPUT_MEMORY_CONFIG, cfg, true);
+    x = ttnn::softmax(x, 3);
     *dst_meta = {
         .tensor = std::make_shared<tt::tt_metal::Tensor>(std::move(x)),
         .ggtype = dst->type,
@@ -1620,7 +1618,7 @@ static bool ggml_backend_metalium_can_glu(const struct ggml_tensor * dst)
     if(split) {
         return true;
     }
-    return dst->src[0]->ne[0] % 2 == 0;
+    return dst->src[0]->ne[0] % 2 == 0 && ggml_get_glu_op(dst) != GGML_GLU_OP_SWIGLU_OAI;
 }
 
 static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
