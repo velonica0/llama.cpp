@@ -458,7 +458,7 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
 
     auto src_adaptor = [](const SrcType& src) -> float {
         if constexpr(std::is_same_v<SrcType, bfloat16>) {
-            return src.to_float();
+            return static_cast<float>(src);
         }
         else if (std::is_same_v<SrcType, float>) {
             return src;
