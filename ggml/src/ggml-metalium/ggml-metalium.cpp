@@ -460,7 +460,10 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
         if constexpr(std::is_same_v<SrcType, bfloat16>) {
             return static_cast<float>(src);
         }
-        else if (std::is_same_v<SrcType, float>) {
+        else if constexpr (std::is_same_v<SrcType, float>) {
+            return src;
+        }
+        else if constexpr (std::is_same_v<SrcType, uint32_t>) {
             return src;
         }
         GGML_UNREACHABLE();
@@ -553,7 +556,8 @@ static void tensor2ggml(const tt::tt_metal::Tensor& tensor, void* dst, ggml_type
     }
 
     if (need_quantized_conversion) {
-        GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16) && "This block should only reach for quantized data types or FP16");
+        GGML_ASSERT((ggml_is_quantized(dst_ggtype) || dst_ggtype == GGML_TYPE_F16 || dst_ggtype == GGML_TYPE_I32)
+            && "This block should only reach for quantized data types or FP16");
         GGML_ASSERT(intermid_buf.size() != 0);
         const ggml_type_traits_cpu* trait = ggml_get_type_traits_cpu(dst_ggtype);
         GGML_ASSERT(trait->from_float != NULL);
