@@ -1614,11 +1614,26 @@ static void ggml_backend_metalium_sum_rows(ggml_backend_metalium_context * ctx, 
 
 static bool ggml_backend_metalium_can_glu(const struct ggml_tensor * dst)
 {
+    constexpr std::array<ggml_glu_op, 5> supported = {
+        GGML_GLU_OP_REGLU,
+        GGML_GLU_OP_GEGLU_ERF,
+        GGML_GLU_OP_GEGLU_QUICK,
+        GGML_GLU_OP_GEGLU,
+        GGML_GLU_OP_SWIGLU
+    };
+    if(std::find_if(supported.begin(), supported.end(), [&](ggml_glu_op op) {
+            return ggml_get_glu_op(dst) == op;
+        }) == supported.end()) {
+        return false;
+    }
+
+
     bool split = dst->src[1] != NULL;
     if(split) {
         return true;
     }
-    return dst->src[0]->ne[0] % 2 == 0 && ggml_get_glu_op(dst) != GGML_GLU_OP_SWIGLU_OAI;
+
+    return dst->src[0]->ne[0] % 2 == 0;
 }
 
 static void ggml_backend_metalium_glu(ggml_backend_metalium_context * ctx, struct ggml_tensor * dst)
