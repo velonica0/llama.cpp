@@ -1167,6 +1167,7 @@ void quantize_a_row_i8(size_t BlkLen, const float * A, size_t CountK, std::byte 
 
 }  // namespace ime1
 
+// 只有vmadot指令是ime扩展
 namespace {
 #define SQ4BIT_KERNEL_COMP_1x8x2_4X8X4          \
     "vmadot       v16, v14, v0            \n\t" \
@@ -1824,14 +1825,14 @@ void SQ4BitGemmM4Kernel_CompInt8_ScaleFp16_Impl(size_t            BlkLen,
 }
 
 template <bool HasZeroPoint>
-void SQ4BitGemmM4Kernel_CompInt8_Impl(size_t            BlkLen,
-                                      const std::byte * QuantA,
-                                      const std::byte * QuantBData,
-                                      const float *     QuantBScale,
+void SQ4BitGemmM4Kernel_CompInt8_Impl(size_t            BlkLen,             // K方向一小块的长度（16的倍数）
+                                      const std::byte * QuantA,             // 量化后A（int8）
+                                      const std::byte * QuantBData,         // 打包好的B权重
+                                      const float *     QuantBScale,        
                                       const std::byte * QuantBZeroPoint,
-                                      float *           C,
-                                      size_t            CountN,
-                                      size_t            BlockCountK,
+                                      float *           C,                  // 输出
+                                      size_t            CountN,             // 需要算的N
+                                      size_t            BlockCountK,        // K 方向拆成了多少个 Block  
                                       const float *     Bias,
                                       const size_t      ldc) {
     GGML_UNUSED(QuantBScale);
@@ -3119,10 +3120,11 @@ inline void SQ4BitGemmM4Kernel_CompInt8_DispatchOnBlkLen(size_t            BlkLe
                                                          const float *     Bias,
                                                          const size_t      ldc,
                                                          const size_t      scalestride) {
+    // 步长为4 float32
     if (scalestride == 4) {
         SQ4BitGemmM4Kernel_CompInt8_Impl<HasZeroPoint>(BlkLen, QuantA, QuantBData, QuantBScale, QuantBZeroPoint, C,
                                                        CountN, BlockStrideQuantB, Bias, ldc);
-
+    // 步长为2 float16/bf16
     } else if (scalestride == 2) {
         SQ4BitGemmM4Kernel_CompInt8_ScaleFp16_Impl<HasZeroPoint>(
             BlkLen, QuantA, QuantBData, QuantBScale, QuantBZeroPoint, C, CountN, BlockStrideQuantB, Bias, ldc);
@@ -3170,6 +3172,7 @@ size_t gemm_kernel_i8i4(size_t            BlkLen,
     GGML_UNUSED(CountM);
     GGML_UNUSED(CountK);
     GGML_UNUSED(ldc);
+    // 一次处理4行
     if (CountM >= 4) {
         if (QuantBZeroPoint != nullptr) {
             SQ4BitGemmM4Kernel_CompInt8_DispatchOnBlkLen<true>(BlkLen, QuantA, QuantBData, QuantBScale, QuantBZeroPoint,

@@ -369,6 +369,7 @@ static int repack_q4_k_to_q4_1_16_bl(struct ggml_tensor *       t,
 
 namespace ggml::cpu::riscv64_spacemit {
 
+//将不同的Q4转化为相同的逻辑，随后进入到GEMM内核
 template <typename BLOC_TYPE, int64_t INTER_SIZE, int64_t NB_COLS>
 int repack(struct ggml_tensor *, const void *, size_t);
 
@@ -897,8 +898,10 @@ static const char * ggml_backend_cpu_riscv64_spacemit_buffer_type_get_name(ggml_
     GGML_UNUSED(buft);
 }
 
+// 当 ggml 想为某个 tensor 分配一块属于 “Spacemit RISC-V 后端” 的内存时，就会通过这个函数去创建对应的 ggml_backend_buffer_t 对象，并把它配置成使用 spacemit 特有的张量初始化/写入逻辑。
 static ggml_backend_buffer_t ggml_backend_cpu_riscv64_spacemit_buffer_type_alloc_buffer(ggml_backend_buffer_type_t buft,
                                                                                         size_t size) {
+    // 调用通用CPU后端
     ggml_backend_buffer_t buffer = ggml_backend_buft_alloc_buffer(ggml_backend_cpu_buffer_type(), size);
 
     if (buffer == nullptr) {
@@ -906,7 +909,9 @@ static ggml_backend_buffer_t ggml_backend_cpu_riscv64_spacemit_buffer_type_alloc
     }
 
     buffer->buft              = buft;
+    // 当某个 tensor 绑定到这个 buffer 上时，会调用这个函数做初始化（比如设置 tensor 的 extra 信息、布局、traits 等，和 spacemit 优化有关）
     buffer->iface.init_tensor = ggml_backend_riscv64_spacemit_buffer_init_tensor;
+    // 把数据写入这个 buffer 中对应的 tensor 时，走 spacemit 自己的逻辑（比如做重排、量化、对齐等）
     buffer->iface.set_tensor  = ggml_backend_riscv64_spacemit_buffer_set_tensor;
     buffer->iface.get_tensor  = nullptr;
     buffer->iface.cpy_tensor  = nullptr;
@@ -919,6 +924,7 @@ static size_t ggml_backend_cpu_riscv64_spacemit_buffer_type_get_alignment(ggml_b
     GGML_UNUSED(buft);
 }
 
+// 张量内存大小计算器
 static size_t ggml_backend_cpu_riscv64_spacemit_nbytes(ggml_backend_buffer_type_t buft,
                                                        const struct ggml_tensor * tensor) {
     for (int i = 0; i < GGML_MAX_DIMS; ++i) {
@@ -955,6 +961,7 @@ static size_t ggml_backend_cpu_riscv64_spacemit_nbytes(ggml_backend_buffer_type_
 
 namespace ggml::cpu::riscv64_spacemit {
 
+// 后端支持的优化算子
 class extra_buffer_type : ggml::cpu::extra_buffer_type {
     bool supports_op(ggml_backend_dev_t, const struct ggml_tensor * op) override {
         switch (op->op) {
@@ -1004,15 +1011,16 @@ class extra_buffer_type : ggml::cpu::extra_buffer_type {
 
 }  // namespace ggml::cpu::riscv64_spacemit
 
+// Spacemit注册函数
 ggml_backend_buffer_type_t ggml_backend_cpu_riscv64_spacemit_buffer_type(void) {
     static struct ggml_backend_buffer_type ggml_backend_cpu_buffer_type_riscv64_spacemit = {
   /* .iface    = */
         {
-         /* .get_name         = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_get_name,
-         /* .alloc_buffer     = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_alloc_buffer,
-         /* .get_alignment    = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_get_alignment,
+         /* .get_name         = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_get_name,      // 返回缓冲区类型名称 "CPU", "CUDA0",
+         /* .alloc_buffer     = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_alloc_buffer,  // 分配指定大小的缓冲区 CUDA: cudaMalloc, CPU: malloc
+         /* .get_alignment    = */ ggml_backend_cpu_riscv64_spacemit_buffer_type_get_alignment, // 返回内存对齐要求 CPU: 64字节, CUDA: 512字节 
          /* .get_max_size     = */ nullptr,
-         /* .get_alloc_size   = */ ggml_backend_cpu_riscv64_spacemit_nbytes,
+         /* .get_alloc_size   = */ ggml_backend_cpu_riscv64_spacemit_nbytes,                    // 计算张量实际分配大小
          /* .is_host          = */ nullptr,
          },
  /* .device  = */

@@ -50,6 +50,7 @@ std::vector<ggml_backend_buffer_type_t> & ggml_backend_cpu_get_extra_buffer_type
 #endif
 
 #ifdef GGML_USE_CPU_RISCV64_SPACEMIT
+        // 收集CPU后端的扩展缓冲区
         if (ggml_backend_cpu_riscv64_spacemit_buffer_type()) {
             bufts.push_back(ggml_backend_cpu_riscv64_spacemit_buffer_type());
         }
